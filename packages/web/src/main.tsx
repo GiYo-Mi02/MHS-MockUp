@@ -1,0 +1,43 @@
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import { BrowserRouter, Route, Routes, Navigate } from 'react-router-dom'
+import './styles.css'
+import { Header } from './components/Header'
+import { AuthProvider } from './lib/auth'
+import { Footer } from './components/Footer'
+import { Home } from './pages/Home'
+import { Report } from './pages/Report'
+import { Track } from './pages/Track'
+import { SignIn } from './pages/SignIn'
+import { Dashboard } from './pages/Dashboard'
+import { SignUp } from './pages/SignUp'
+
+function App() {
+  return (
+    <div className="min-h-screen flex flex-col">
+      <Header />
+      <main className="flex-1 container mx-auto px-4 py-6">
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/report" element={<Report />} />
+          <Route path="/track/:trackingId" element={<Track />} />
+          <Route path="/signin" element={<SignIn />} />
+          <Route path="/signup" element={<SignUp />} />
+          <Route path="/dashboard/*" element={<Dashboard />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
+      <Footer />
+    </div>
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </BrowserRouter>
+  </React.StrictMode>
+)

@@ -1,0 +1,19 @@
+{
+  "name": "makati-report",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "postinstall": "npm run -ws postinstall || echo postinstall done",
+    "dev": "npm run -ws dev",
+    "build": "npm run -ws build",
+    "start": "npm run -ws start",
+    "lint": "npm run -ws lint",
+    "format": "npm run -ws format"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
