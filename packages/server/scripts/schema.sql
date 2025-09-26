@@ -1,49 +1,115 @@
-CREATE TABLE IF NOT EXISTS users (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+SET FOREIGN_KEY_CHECKS = 0;
+
+DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS report_status_logs;
+DROP TABLE IF EXISTS report_evidence;
+DROP TABLE IF EXISTS reports;
+DROP TABLE IF EXISTS sla_policies;
+DROP TABLE IF EXISTS department_staff;
+DROP TABLE IF EXISTS admins;
+DROP TABLE IF EXISTS citizens;
+DROP TABLE IF EXISTS departments;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+CREATE TABLE departments (
+  department_id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
-  email VARCHAR(191) NOT NULL UNIQUE,
-  password_hash VARCHAR(255) NOT NULL,
-  role ENUM('CITIZEN','STAFF','ADMIN') NOT NULL DEFAULT 'CITIZEN',
-  department_id INT NULL,
+  code VARCHAR(50) NOT NULL UNIQUE,
+  description TEXT,
+  contact_email VARCHAR(100),
+  contact_number VARCHAR(20)
+);
+
+CREATE TABLE citizens (
+  citizen_id INT AUTO_INCREMENT PRIMARY KEY,
+  full_name VARCHAR(100) NOT NULL,
+  contact_number VARCHAR(20),
+  email VARCHAR(100) UNIQUE,
+  password_hash VARCHAR(255),
+  is_anonymous BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS departments (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(100) NOT NULL,
-  code VARCHAR(50) NOT NULL UNIQUE
+CREATE TABLE admins (
+  admin_id INT AUTO_INCREMENT PRIMARY KEY,
+  full_name VARCHAR(100) NOT NULL,
+  email VARCHAR(100) UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS reports (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  tracking_id VARCHAR(50) NOT NULL UNIQUE,
-  title VARCHAR(200) NOT NULL,
-  description TEXT NOT NULL,
+CREATE TABLE department_staff (
+  staff_id INT AUTO_INCREMENT PRIMARY KEY,
   department_id INT NOT NULL,
-  citizen_id INT NULL,
-  status ENUM('PENDING','IN_PROGRESS','RESOLVED') NOT NULL DEFAULT 'PENDING',
-  location VARCHAR(255) NULL,
-  photo_url VARCHAR(255) NULL,
+  full_name VARCHAR(100) NOT NULL,
+  role VARCHAR(50) DEFAULT 'staff',
+  email VARCHAR(100) UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (department_id) REFERENCES departments(id),
-  FOREIGN KEY (citizen_id) REFERENCES users(id)
+  FOREIGN KEY (department_id) REFERENCES departments(department_id)
 );
 
-CREATE TABLE IF NOT EXISTS status_logs (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE sla_policies (
+  sla_id INT AUTO_INCREMENT PRIMARY KEY,
+  category VARCHAR(50) NOT NULL,
+  urgency_level VARCHAR(20) DEFAULT 'Regular',
+  expected_resolution_hours INT NOT NULL
+);
+
+CREATE TABLE reports (
+  report_id INT AUTO_INCREMENT PRIMARY KEY,
+  citizen_id INT,
+  tracking_id VARCHAR(30) NOT NULL UNIQUE,
+  title VARCHAR(150) NOT NULL,
+  category VARCHAR(50) NOT NULL,
+  description TEXT NOT NULL,
+  urgency_level VARCHAR(20) DEFAULT 'Regular',
+  status VARCHAR(20) DEFAULT 'Pending',
+  location_address TEXT,
+  location_landmark TEXT,
+  location_lat DECIMAL(9,6),
+  location_lng DECIMAL(9,6),
+  assigned_department_id INT,
+  assigned_staff_id INT,
+  expected_resolution_hours INT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  assigned_at TIMESTAMP NULL,
+  resolved_at TIMESTAMP NULL,
+  FOREIGN KEY (citizen_id) REFERENCES citizens(citizen_id),
+  FOREIGN KEY (assigned_department_id) REFERENCES departments(department_id),
+  FOREIGN KEY (assigned_staff_id) REFERENCES department_staff(staff_id)
+);
+
+CREATE TABLE report_evidence (
+  evidence_id INT AUTO_INCREMENT PRIMARY KEY,
   report_id INT NOT NULL,
-  status ENUM('PENDING','IN_PROGRESS','RESOLVED') NOT NULL,
-  remarks VARCHAR(255) NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (report_id) REFERENCES reports(id)
+  file_url TEXT NOT NULL,
+  file_type VARCHAR(20) CHECK (file_type IN ('photo','video','audio')),
+  uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (report_id) REFERENCES reports(report_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS notifications (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  user_id INT NULL,
-  report_id INT NULL,
+CREATE TABLE report_status_logs (
+  log_id INT AUTO_INCREMENT PRIMARY KEY,
+  report_id INT NOT NULL,
+  action VARCHAR(100) NOT NULL,
+  actor_type VARCHAR(20) CHECK (actor_type IN ('citizen','staff','admin')),
+  actor_id INT,
+  old_status VARCHAR(20),
+  new_status VARCHAR(20),
+  remarks TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (report_id) REFERENCES reports(report_id) ON DELETE CASCADE
+);
+
+CREATE TABLE notifications (
+  notification_id INT AUTO_INCREMENT PRIMARY KEY,
+  report_id INT,
+  recipient_type VARCHAR(20) CHECK (recipient_type IN ('citizen','staff','admin')),
+  recipient_id INT,
   message VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id),
-  FOREIGN KEY (report_id) REFERENCES reports(id)
+  read_at TIMESTAMP NULL,
+  FOREIGN KEY (report_id) REFERENCES reports(report_id) ON DELETE CASCADE
 );

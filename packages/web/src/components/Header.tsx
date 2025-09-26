@@ -1,24 +1,79 @@
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
+import { useTheme } from '@/lib/theme'
+import { NotificationDropdown } from './NotificationDropdown'
+
+const navLinks = [
+  { to: '/report', label: 'Submit Report', private: false },
+  { to: '/dashboard', label: 'Dashboard', private: true }
+]
 
 export function Header() {
   const { user, signout } = useAuth()
+  const location = useLocation()
+  const { theme, toggleTheme } = useTheme()
   const canSeeDashboard = user && (user.role === 'STAFF' || user.role === 'ADMIN')
+
   return (
-    <header className="bg-white border-b">
-      <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-        <a href="/" className="font-semibold text-lg">MakatiReport</a>
-        <nav className="space-x-4">
-          <a href="/report" className="text-sm text-blue-600">Submit Report</a>
-          {canSeeDashboard && <a href="/dashboard" className="text-sm">Dashboard</a>}
-          {!user ? (
-            <>
-              <a href="/signin" className="text-sm">Sign In</a>
-              <a href="/signup" className="text-sm">Sign Up</a>
-            </>
-          ) : (
-            <button onClick={() => void signout()} className="text-sm">Sign Out</button>
-          )}
+    <header className="relative z-20 border-b border-neutral-200 bg-white/80 backdrop-blur dark:border-white/10 dark:bg-black/20">
+      <div className="absolute inset-0 bg-gradient-to-r from-brand/15 via-transparent to-brand/15 dark:from-brand/25 dark:to-brand/30" aria-hidden />
+      <div className="relative container flex items-center justify-between py-5">
+        <Link to="/" className="flex items-center gap-3 text-neutral-900 transition hover:opacity-90 dark:text-white">
+          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand text-white shadow-lg shadow-brand/40">
+            <span className="text-lg font-bold">MR</span>
+          </span>
+          <div>
+            <div className="text-sm uppercase tracking-[0.3em] text-neutral-500 dark:text-white/60">City of Makati</div>
+            <div className="text-lg font-semibold">MakatiReport</div>
+          </div>
+        </Link>
+
+        <nav className="hidden items-center gap-2 text-sm font-medium md:flex">
+          {navLinks
+            .filter((link) => (link.private ? canSeeDashboard : true))
+            .map((link) => {
+              const isActive = location.pathname.startsWith(link.to)
+              return (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  className={`rounded-full px-4 py-2 transition ${
+                    isActive
+                      ? 'bg-neutral-900/10 text-neutral-900 dark:bg-white/15 dark:text-white'
+                      : 'text-neutral-600 hover:bg-neutral-900/5 hover:text-neutral-900 dark:text-white/70 dark:hover:bg-white/10 dark:hover:text-white'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              )
+            })}
         </nav>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="btn-secondary inline-flex h-10 w-10 items-center justify-center rounded-full"
+            aria-label={`Activate ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
+          {user && <NotificationDropdown />}
+          {!user ? (
+            <div className="flex items-center gap-2">
+              <Link to="/signin" className="btn-secondary hidden md:inline-flex">
+                Sign In
+              </Link>
+              <Link to="/signup" className="btn-primary">
+                Create Account
+              </Link>
+            </div>
+          ) : (
+            <button onClick={() => void signout()} className="btn-secondary">
+              Sign Out
+            </button>
+          )}
+        </div>
       </div>
     </header>
   )

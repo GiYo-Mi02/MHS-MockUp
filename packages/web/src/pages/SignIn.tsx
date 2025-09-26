@@ -1,35 +1,50 @@
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
+import { useToast } from '@/lib/toast'
 
 type Form = { email: string; password: string }
 
 export function SignIn() {
   const { register, handleSubmit } = useForm<Form>()
   const { signin } = useAuth()
+  const { showSuccess, showError } = useToast()
   const navigate = useNavigate()
+  
   const onSubmit = async (data: Form) => {
     try {
       await signin(data.email, data.password)
+      showSuccess('Welcome back!', 'You have been signed in successfully.')
       navigate('/')
     } catch (e: any) {
-      alert(e?.response?.data?.error || 'Sign in failed')
+      const errorMessage = e?.response?.data?.error || 'Sign in failed'
+      showError('Sign in failed', errorMessage)
     }
   }
+
   return (
-    <section className="max-w-md">
-      <h1 className="text-xl font-semibold mb-4">Sign In</h1>
-      <form className="space-y-3" onSubmit={handleSubmit(onSubmit)}>
-        <div>
-          <label className="block text-sm">Email</label>
-          <input className="w-full border rounded px-3 py-2" type="email" {...register('email', { required: true })} />
+    <section className="mx-auto max-w-md">
+      <div className="card px-8 py-10">
+        <div className="mb-6 space-y-2">
+          <h1 className="text-2xl font-semibold">Welcome back</h1>
+          <p className="text-secondary">Sign in to manage reports and keep the city moving.</p>
         </div>
-        <div>
-          <label className="block text-sm">Password</label>
-          <input className="w-full border rounded px-3 py-2" type="password" {...register('password', { required: true })} />
-        </div>
-        <button className="px-4 py-2 bg-blue-600 text-white rounded" type="submit">Sign In</button>
-      </form>
+        <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
+          <div className="space-y-2">
+            <label className="stat-label">Email</label>
+            <input className="input-field" type="email" autoComplete="email" {...register('email', { required: true })} />
+          </div>
+          <div className="space-y-2">
+            <label className="stat-label">Password</label>
+            <input className="input-field" type="password" autoComplete="current-password" {...register('password', { required: true })} />
+          </div>
+          <button className="btn-primary w-full" type="submit">Sign In</button>
+        </form>
+        <p className="mt-6 text-center text-faint">
+          Need an account?{' '}
+          <a href="/signup" className="text-brand hover:text-brand-focus dark:text-brand-softer dark:hover:text-white">Create one now</a>
+        </p>
+      </div>
     </section>
   )
 }

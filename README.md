@@ -20,6 +20,12 @@ copy packages\server\.env.example packages\server\.env
 copy packages\web\.env.example packages\web\.env
 ```
 
+Fill out the server `.env` with your SMTP provider so department responses email citizens automatically:
+
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE` – mail server connection
+- `SMTP_USER`, `SMTP_PASS` – credentials (if required)
+- `EMAIL_FROM` – sender address shown in emails
+
 3. Initialize database (ensure MySQL running and credentials in server .env)
 
 ```cmd
