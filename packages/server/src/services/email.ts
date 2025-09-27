@@ -5,7 +5,8 @@ const SMTP_PORT = Number(process.env.SMTP_PORT || 587)
 const SMTP_USER = process.env.SMTP_USER || ''
 const SMTP_PASS = process.env.SMTP_PASS || ''
 const SMTP_SECURE = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true'
-const EMAIL_FROM = process.env.EMAIL_FROM || SMTP_USER || ''
+const EMAIL_FROM = process.env.EMAIL_FROM || ''
+const FROM_ADDRESS = EMAIL_FROM || SMTP_USER || ''
 
 let cachedTransporter: Transporter | null = null
 
@@ -29,7 +30,44 @@ function buildTransporter(): Transporter | null {
 }
 
 export function isEmailConfigured(): boolean {
-  return Boolean(SMTP_HOST && EMAIL_FROM)
+  return Boolean(SMTP_HOST && FROM_ADDRESS)
+}
+
+function maskEmail(value: string): string {
+  if (!value) return ''
+  const [local, domain] = value.split('@')
+  if (!domain) return value
+  if (local.length <= 2) return `${local[0] ?? ''}***@${domain}`
+  return `${local[0]}***${local.slice(-1)}@${domain}`
+}
+
+export function getEmailDiagnostics() {
+  return {
+    configured: isEmailConfigured(),
+    host: SMTP_HOST || null,
+    port: SMTP_PORT,
+    secure: SMTP_SECURE,
+    fromAddress: FROM_ADDRESS || null,
+    hasAuthUser: Boolean(SMTP_USER),
+    maskedAuthUser: maskEmail(SMTP_USER)
+  }
+}
+
+export async function verifyEmailTransport(): Promise<boolean> {
+  const transporter = buildTransporter()
+  if (!transporter || !FROM_ADDRESS) {
+    console.warn('Email transport is not configured. Skipping verification test.')
+    return false
+  }
+
+  try {
+    await transporter.verify()
+    console.info('Email transport verified for %s:%d (from %s)', SMTP_HOST, SMTP_PORT, FROM_ADDRESS)
+    return true
+  } catch (error) {
+    console.error('Email transport verification failed:', error)
+    return false
+  }
 }
 
 export type SendEmailOptions = {
@@ -41,18 +79,23 @@ export type SendEmailOptions = {
 
 export async function sendEmail({ to, subject, html, text }: SendEmailOptions): Promise<{ skipped?: boolean }> {
   const transporter = buildTransporter()
-  if (!transporter || !EMAIL_FROM) {
+  if (!transporter || !FROM_ADDRESS) {
     console.warn('Email transport is not configured. Skipping send to %s', to)
     return { skipped: true }
   }
 
-  await transporter.sendMail({
-    from: EMAIL_FROM,
-    to,
-    subject,
-    html,
-    text
-  })
+  try {
+    await transporter.sendMail({
+      from: FROM_ADDRESS,
+      to,
+      subject,
+      html,
+      text
+    })
+  } catch (error) {
+    console.error('Failed to send email to %s: %s', to, (error as Error).message)
+    throw error
+  }
 
   return {}
 }

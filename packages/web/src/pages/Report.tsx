@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
 import { useForm } from 'react-hook-form'
 import { api } from '@/lib/api'
 import { useToast } from '@/lib/toast'
 import { MapPicker, type Coordinates } from '@/components/maps/MapPicker'
 import { reverseGeocode } from '@/lib/geocode'
+import { useAuth } from '@/lib/auth'
 
-type FormData = {
+type ReportFormData = {
   title: string
   description: string
   category: string
@@ -14,14 +15,27 @@ type FormData = {
   locationLng: number | null
 }
 
+type EvidenceItem = {
+  id: string
+  file: File
+  preview: string
+  name: string
+  size: number
+}
+
+const MAX_EVIDENCE_FILES = 3
+const MAX_EVIDENCE_SIZE_MB = 4
+const MAX_EVIDENCE_SIZE_BYTES = MAX_EVIDENCE_SIZE_MB * 1024 * 1024
+
 export function Report() {
-  const { register, handleSubmit, reset, setValue, watch } = useForm<FormData>({
+  const { register, handleSubmit, reset, setValue, watch } = useForm<ReportFormData>({
     defaultValues: {
       locationAddress: '',
       locationLat: null,
       locationLng: null
     }
   })
+  const { user } = useAuth()
   const { showSuccess, showError } = useToast()
   const [geoError, setGeoError] = useState<string | null>(null)
   const [geoPending, setGeoPending] = useState(false)
@@ -32,11 +46,25 @@ export function Report() {
   const addressEditedRef = useRef(false)
   const locationAddressRef = useRef('')
   const lastReverseCoordsRef = useRef<Coordinates | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const dragCounterRef = useRef(0)
+  const evidenceUrlsRef = useRef<Set<string>>(new Set())
+  const [evidenceFiles, setEvidenceFiles] = useState<EvidenceItem[]>([])
+  const [isDragging, setIsDragging] = useState(false)
 
   useEffect(() => {
     register('locationLat')
     register('locationLng')
   }, [register])
+
+  useEffect(() => {
+    return () => {
+      evidenceUrlsRef.current.forEach((url) => {
+        URL.revokeObjectURL(url)
+      })
+      evidenceUrlsRef.current.clear()
+    }
+  }, [])
 
   const locationLat = watch('locationLat')
   const locationLng = watch('locationLng')
@@ -59,6 +87,129 @@ export function Report() {
     }
     return null
   }, [locationLat, locationLng])
+
+  const makeEvidenceId = () => (
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2, 10)
+  )
+
+  const releasePreview = (url: string) => {
+    if (!url) return
+    if (evidenceUrlsRef.current.has(url)) {
+      URL.revokeObjectURL(url)
+      evidenceUrlsRef.current.delete(url)
+    }
+  }
+
+  const handleFilesSelected = (fileList: FileList | File[] | null) => {
+    if (!fileList) return
+    const incoming = Array.from(fileList)
+    if (!incoming.length) return
+
+    const remainingSlots = MAX_EVIDENCE_FILES - evidenceFiles.length
+    if (remainingSlots <= 0) {
+      showError('Attachment limit reached', `You can upload up to ${MAX_EVIDENCE_FILES} photos per report.`)
+      return
+    }
+
+    const accepted: EvidenceItem[] = []
+    let rejectedType = false
+    let rejectedSize = false
+
+    for (const file of incoming) {
+      if (!file.type.startsWith('image/')) {
+        rejectedType = true
+        continue
+      }
+      if (file.size > MAX_EVIDENCE_SIZE_BYTES) {
+        rejectedSize = true
+        continue
+      }
+      const preview = URL.createObjectURL(file)
+      evidenceUrlsRef.current.add(preview)
+      accepted.push({
+        id: makeEvidenceId(),
+        file,
+        preview,
+        name: file.name,
+        size: file.size
+      })
+      if (accepted.length >= remainingSlots) {
+        break
+      }
+    }
+
+    if (accepted.length) {
+      setEvidenceFiles((prev) => [...prev, ...accepted])
+    }
+
+    if (rejectedType) {
+      showError('Unsupported file type', 'Only image uploads are allowed for evidence.')
+    }
+    if (rejectedSize) {
+      showError('File too large', `Each photo must be under ${MAX_EVIDENCE_SIZE_MB} MB.`)
+    }
+  }
+
+  const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    handleFilesSelected(event.target.files)
+    if (event.target) {
+      event.target.value = ''
+    }
+  }
+
+  const handleRemoveEvidence = (id: string) => {
+    setEvidenceFiles((prev) => {
+      const target = prev.find((item) => item.id === id)
+      if (target) {
+        releasePreview(target.preview)
+      }
+      return prev.filter((item) => item.id !== id)
+    })
+  }
+
+  const clearEvidence = () => {
+    setEvidenceFiles((prev) => {
+      prev.forEach((item) => releasePreview(item.preview))
+      return []
+    })
+    evidenceUrlsRef.current.forEach((url) => {
+      URL.revokeObjectURL(url)
+    })
+    evidenceUrlsRef.current.clear()
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+    dragCounterRef.current = 0
+    setIsDragging(false)
+  }
+
+  const handleDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    dragCounterRef.current += 1
+    setIsDragging(true)
+  }
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+  }
+
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1)
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false)
+    }
+  }
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    dragCounterRef.current = 0
+    setIsDragging(false)
+    handleFilesSelected(event.dataTransfer?.files ?? null)
+  }
 
   const handleCoordinatesChange = (coords: Coordinates | null) => {
     setValue('locationLat', coords ? coords.lat : null, { shouldDirty: true })
@@ -143,15 +294,30 @@ export function Report() {
     }
   }, [selectedCoordinates, setValue])
 
-  const onSubmit = async (data: FormData) => {
+  const onSubmit = async (data: ReportFormData) => {
     try {
-      const res = await api.post('/reports', {
-        title: data.title,
-        description: data.description,
-        category: data.category,
-        locationAddress: data.locationAddress || null,
-        locationLat: typeof data.locationLat === 'number' ? data.locationLat : null,
-        locationLng: typeof data.locationLng === 'number' ? data.locationLng : null
+      const payload = new window.FormData()
+      payload.append('title', data.title)
+      payload.append('description', data.description)
+      payload.append('category', data.category)
+      if (data.locationAddress) {
+        payload.append('locationAddress', data.locationAddress)
+      }
+      if (typeof data.locationLat === 'number' && !Number.isNaN(data.locationLat)) {
+        payload.append('locationLat', String(data.locationLat))
+      }
+      if (typeof data.locationLng === 'number' && !Number.isNaN(data.locationLng)) {
+        payload.append('locationLng', String(data.locationLng))
+      }
+      if (user?.role === 'CITIZEN') {
+        payload.append('citizenId', String(user.id))
+      }
+      evidenceFiles.forEach((item) => {
+        payload.append('evidence', item.file, item.name)
+      })
+
+      const res = await api.post('/reports', payload, {
+        headers: { 'Content-Type': 'multipart/form-data' }
       })
       
       showSuccess(
@@ -165,6 +331,8 @@ export function Report() {
       setReverseLookupError(null)
       addressEditedRef.current = false
       setAddressManuallyEdited(false)
+      clearEvidence()
+      setIsDragging(false)
     } catch (e: any) {
       const errorMessage = e?.response?.data?.error || 'Failed to submit report'
       showError('Submission failed', errorMessage)
@@ -250,6 +418,71 @@ export function Report() {
             {reverseLookupError && <p className="text-xs text-red-600 dark:text-red-300">{reverseLookupError}</p>}
             {geoError && <p className="text-xs text-red-600 dark:text-red-300">{geoError}</p>}
           </div>
+
+          <div className="grid gap-2">
+            <label className="stat-label">Photo evidence (optional)</label>
+            <div
+              onDragEnter={handleDragEnter}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`flex flex-col items-center justify-center rounded-2xl border-2 border-dashed px-4 py-8 text-center transition ${
+                isDragging
+                  ? 'border-brand bg-brand/10 dark:border-brand/60 dark:bg-brand/10'
+                  : 'border-neutral-200 dark:border-white/15'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                id="evidence-upload"
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleFileInputChange}
+              />
+              <p className="text-sm font-medium text-neutral-700 dark:text-white/80">Drop photos here or</p>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="btn-secondary mt-3 px-4 py-2"
+              >
+                Browse files
+              </button>
+              <p className="mt-3 text-xs text-neutral-500 dark:text-white/50">
+                Up to {MAX_EVIDENCE_FILES} images, {MAX_EVIDENCE_SIZE_MB} MB each.
+              </p>
+            </div>
+
+            {evidenceFiles.length > 0 && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {evidenceFiles.map((item) => (
+                  <div
+                    key={item.id}
+                    className="relative overflow-hidden rounded-xl border border-neutral-200 bg-neutral-50 shadow-sm dark:border-white/10 dark:bg-white/5"
+                  >
+                    <img src={item.preview} alt={item.name} className="h-32 w-full object-cover" />
+                    <button
+                      type="button"
+                      className="absolute right-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[11px] font-medium text-white hover:bg-black/90"
+                      onClick={() => handleRemoveEvidence(item.id)}
+                    >
+                      Remove
+                    </button>
+                    <div className="truncate px-3 py-2 text-xs text-neutral-600 dark:text-white/60">
+                      {item.name} · {(item.size / (1024 * 1024)).toFixed(1)} MB
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {user?.role !== 'CITIZEN' && (
+            <p className="text-xs text-amber-600 dark:text-amber-300">
+              Tip: Sign in to your Makati Cares account so you automatically receive email receipts and status updates.
+            </p>
+          )}
 
           <button className="btn-primary" type="submit">Submit report</button>
         </form>

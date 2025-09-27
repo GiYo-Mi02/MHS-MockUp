@@ -9,6 +9,8 @@ import { departmentsRouter } from './routes/departments'
 import { reportsRouter } from './routes/reports'
 import { notificationsRouter } from './routes/notifications'
 import { dashboardsRouter } from './routes/dashboards'
+import { analyticsRouter } from './routes/analytics'
+import { getEmailDiagnostics, verifyEmailTransport } from './services/email'
 
 const app = express()
 
@@ -24,11 +26,16 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, name: 'makati-report', ts: new Date().toISOString() })
 })
 
+app.get('/api/health/email', (_req, res) => {
+  res.json(getEmailDiagnostics())
+})
+
 app.use('/api/auth', authRouter)
 app.use('/api/departments', departmentsRouter)
 app.use('/api/reports', reportsRouter)
 app.use('/api/notifications', notificationsRouter)
 app.use('/api/dashboards', dashboardsRouter)
+app.use('/api/analytics', analyticsRouter)
 
 // Static for any uploads (not used when Cloudinary)
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')))
@@ -40,4 +47,5 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`)
+  void verifyEmailTransport()
 })

@@ -1,32 +1,90 @@
-import { Router, Request, Response } from 'express'
+import { Router, type Request, type Response } from 'express'
+import type { Express } from 'express'
+import multer from 'multer'
 import { ResultSetHeader } from 'mysql2'
 import { pool } from '../db'
 import { requireAuth, requireRole } from '../auth'
-import { sendReportUpdateNotification } from '../services/report-email'
+import { sendReportSubmissionReceipt, sendReportUpdateNotification } from '../services/report-email'
 import { notifyDepartmentOfNewReport, notifyCitizenOfStatusChange, notifyCitizenOfResponse } from '../services/notifications'
+import { uploadEvidenceImage } from '../services/storage'
 
 export const reportsRouter = Router()
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+    files: 5
+  }
+})
 
 function generateTrackingId() {
   return 'MR-' + Math.random().toString(36).slice(2, 8).toUpperCase()
 }
 
+function parseNullableNumber(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null
+  const num = Number(value)
+  return Number.isFinite(num) ? num : null
+}
+
+function normalizeEvidencePayload(value: unknown): Array<{ fileUrl: string; fileType: string }> {
+  if (!value) return []
+  let parsed = value
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value)
+    } catch (_err) {
+      return []
+    }
+  }
+
+  if (!Array.isArray(parsed)) return []
+
+  return parsed
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const record = item as { fileUrl?: unknown; fileType?: unknown }
+      if (typeof record.fileUrl !== 'string' || !record.fileUrl) return null
+      return {
+        fileUrl: record.fileUrl,
+        fileType: typeof record.fileType === 'string' && record.fileType ? record.fileType : 'photo'
+      }
+    })
+    .filter((item): item is { fileUrl: string; fileType: string } => Boolean(item))
+}
+
 // Create report
-reportsRouter.post('/', async (req: Request, res: Response) => {
-  const {
-    title,
-    description,
-    category,
-    urgency = 'Regular',
-    locationAddress,
-    locationLandmark,
-    locationLat,
-    locationLng,
-    citizenId,
-    evidence = []
-  } = req.body || {}
+reportsRouter.post('/', upload.array('evidence', 5), async (req: Request, res: Response) => {
+  const body = req.body || {}
+  const title = typeof body.title === 'string' ? body.title.trim() : ''
+  const description = typeof body.description === 'string' ? body.description.trim() : ''
+  const category = typeof body.category === 'string' ? body.category.trim() : ''
+  const urgency = typeof body.urgency === 'string' && body.urgency.trim() ? body.urgency.trim() : 'Regular'
+  const locationAddress = typeof body.locationAddress === 'string' && body.locationAddress.trim() ? body.locationAddress.trim() : null
+  const locationLandmark = typeof body.locationLandmark === 'string' && body.locationLandmark.trim() ? body.locationLandmark.trim() : null
+  const locationLat = parseNullableNumber(body.locationLat)
+  const locationLng = parseNullableNumber(body.locationLng)
+  const citizenId = parseNullableNumber(body.citizenId)
+  const evidencePayload = normalizeEvidencePayload(body.evidence)
 
   if (!title || !description || !category) return res.status(400).json({ error: 'Missing fields' })
+
+  const files = (req.files as Express.Multer.File[] | undefined) ?? []
+  const uploadedEvidence: Array<{ fileUrl: string; fileType: string }> = []
+
+  for (const file of files) {
+    try {
+      const uploaded = await uploadEvidenceImage({
+        buffer: file.buffer,
+        mimetype: file.mimetype,
+        originalname: file.originalname
+      })
+      uploadedEvidence.push({ fileUrl: uploaded.url, fileType: 'photo' })
+    } catch (error) {
+      console.error('Failed to upload evidence file %s:', file.originalname, error)
+    }
+  }
 
   const [deptRows] = await pool.query('SELECT department_id FROM departments WHERE code = ? LIMIT 1', [category])
   const department = (deptRows as any[])[0]
@@ -65,8 +123,8 @@ reportsRouter.post('/', async (req: Request, res: Response) => {
       description,
       urgency,
       'Pending',
-      locationAddress || null,
-      locationLandmark || null,
+      locationAddress,
+      locationLandmark,
       locationLat ?? null,
       locationLng ?? null,
       department.department_id,
@@ -90,27 +148,35 @@ reportsRouter.post('/', async (req: Request, res: Response) => {
     ]
   )
 
-  if (Array.isArray(evidence) && evidence.length) {
-    const values = evidence
-      .filter((item: any) => item?.fileUrl)
-      .map((item: any) => [reportId, item.fileUrl, item.fileType || 'photo'])
-    if (values.length) {
-      await pool.query(
-        'INSERT INTO report_evidence (report_id, file_url, file_type) VALUES ?'
-        , [values]
-      )
-    }
+  const evidenceRecords = [...evidencePayload, ...uploadedEvidence]
+
+  if (evidenceRecords.length) {
+    const values = evidenceRecords.map((item) => [reportId, item.fileUrl, item.fileType || 'photo'])
+    await pool.query(
+      'INSERT INTO report_evidence (report_id, file_url, file_type) VALUES ?'
+      , [values]
+    )
   }
 
   let citizenName: string | undefined
+  let citizenHasEmail = false
   if (citizenId) {
-    const [citizenRows] = await pool.query('SELECT full_name FROM citizens WHERE citizen_id = ?', [citizenId])
+    const [citizenRows] = await pool.query('SELECT full_name, email FROM citizens WHERE citizen_id = ?', [citizenId])
     const citizen = (citizenRows as any[])[0]
     citizenName = citizen?.full_name || undefined
+    citizenHasEmail = typeof citizen?.email === 'string' && citizen.email.length > 0
   }
 
   // Notify department staff of new report regardless of citizen presence
   await notifyDepartmentOfNewReport(reportId, department.department_id, title, citizenName, trackingId)
+
+  if (citizenId && citizenHasEmail) {
+    try {
+      await sendReportSubmissionReceipt(reportId)
+    } catch (error) {
+      console.error('Failed to send submission receipt email:', error)
+    }
+  }
 
   res.status(201).json({ id: reportId, trackingId, title, status: 'Pending', expectedResolutionHours })
 })

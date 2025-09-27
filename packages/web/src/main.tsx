@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Route, Routes, Navigate } from 'react-router-dom'
+import { BrowserRouter, Route, Routes, Navigate, useLocation } from 'react-router-dom'
 import './styles.css'
 import 'leaflet/dist/leaflet.css'
 import { Header } from './components/Header'
@@ -15,22 +15,33 @@ import { SignIn } from './pages/SignIn'
 import { Dashboard } from './pages/Dashboard'
 import { SignUp } from './pages/SignUp'
 
+function AnimatedRoutes() {
+  const location = useLocation()
+  const routeKey = `${location.pathname}${location.search}`
+
+  return (
+    <div className="container">
+      <div key={routeKey} className="page-slide-up">
+        <Routes location={location}>
+          <Route path="/" element={<Home />} />
+          <Route path="/report" element={<Report />} />
+          <Route path="/track/:trackingId?" element={<Track />} />
+          <Route path="/signin" element={<SignIn />} />
+          <Route path="/signup" element={<SignUp />} />
+          <Route path="/dashboard/*" element={<Dashboard />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
       <main className="flex-1 py-12">
-        <div className="container">
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/report" element={<Report />} />
-            <Route path="/track/:trackingId?" element={<Track />} />
-            <Route path="/signin" element={<SignIn />} />
-            <Route path="/signup" element={<SignUp />} />
-            <Route path="/dashboard/*" element={<Dashboard />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </div>
+        <AnimatedRoutes />
       </main>
       <Footer />
     </div>

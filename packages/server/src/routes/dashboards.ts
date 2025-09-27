@@ -10,32 +10,81 @@ dashboardsRouter.get('/department', requireAuth, requireRole('STAFF', 'ADMIN'), 
   const departmentId = user.role === 'ADMIN' ? Number(req.query.departmentId) || null : user.departmentId || null
   if (!departmentId) return res.status(400).json({ error: 'Missing departmentId' })
 
-  const [rows] = await pool.query(
-    `SELECT r.report_id as id,
-      r.tracking_id as trackingId,
-      r.title,
-            r.category,
-            r.description,
-            r.status,
-            r.urgency_level as urgency,
-            r.created_at as createdAt,
-            r.assigned_at as assignedAt,
-            r.resolved_at as resolvedAt,
-            r.expected_resolution_hours as expectedResolutionHours,
-      r.location_address as locationAddress,
-      r.location_lat as locationLat,
-      r.location_lng as locationLng,
-            c.full_name as citizenName,
-            c.email as citizenEmail,
-            c.contact_number as citizenContact
-     FROM reports r
-     LEFT JOIN citizens c ON r.citizen_id = c.citizen_id
-     WHERE r.assigned_department_id = ?
-     ORDER BY r.created_at DESC
-     LIMIT 200`,
-    [departmentId]
-  )
-  res.json(rows)
+  const parsedPage = Number(req.query.page)
+  const parsedPageSize = Number(req.query.pageSize)
+  const pageSize = Math.min(Math.max(Number.isFinite(parsedPageSize) && parsedPageSize > 0 ? parsedPageSize : 5, 1), 5)
+  const requestedPage = Math.max(Number.isFinite(parsedPage) && parsedPage ? parsedPage : 1, 1)
+  const searchTermRaw = typeof req.query.search === 'string' ? req.query.search.trim() : ''
+  const searchTerm = searchTermRaw.slice(0, 100)
+
+  const likeTerm = `%${searchTerm}%`
+  const filterClause = searchTerm
+    ? ` AND (
+        r.tracking_id LIKE ?
+        OR r.title LIKE ?
+        OR c.full_name LIKE ?
+        OR c.email LIKE ?
+        OR r.category LIKE ?
+      )`
+    : ''
+
+  const filterParams = searchTerm ? [likeTerm, likeTerm, likeTerm, likeTerm, likeTerm] : []
+
+  const countQuery = `
+    SELECT COUNT(*) as total
+    FROM reports r
+    LEFT JOIN citizens c ON r.citizen_id = c.citizen_id
+    WHERE r.assigned_department_id = ?${filterClause}
+  `
+  const [countRows] = await pool.query(countQuery, [departmentId, ...filterParams])
+  const total = Number((countRows as any[])[0]?.total ?? 0)
+  const totalPages = total === 0 ? 1 : Math.max(1, Math.ceil(total / pageSize))
+
+  let page = Math.min(requestedPage, totalPages)
+  if (page < 1) page = 1
+  let offset = (page - 1) * pageSize
+
+  const baseQuery = `
+    SELECT r.report_id as id,
+           r.tracking_id as trackingId,
+           r.title,
+           r.category,
+           r.description,
+           r.status,
+           r.urgency_level as urgency,
+           r.created_at as createdAt,
+           r.assigned_at as assignedAt,
+           r.resolved_at as resolvedAt,
+           r.expected_resolution_hours as expectedResolutionHours,
+           r.location_address as locationAddress,
+           r.location_lat as locationLat,
+           r.location_lng as locationLng,
+           c.full_name as citizenName,
+           c.email as citizenEmail,
+           c.contact_number as citizenContact
+    FROM reports r
+    LEFT JOIN citizens c ON r.citizen_id = c.citizen_id
+    WHERE r.assigned_department_id = ?${filterClause}
+    ORDER BY r.created_at DESC
+    LIMIT ? OFFSET ?
+  `
+
+  let [rows] = await pool.query(baseQuery, [departmentId, ...filterParams, pageSize, offset])
+
+  if (total > 0 && offset >= total) {
+    page = totalPages
+    offset = (page - 1) * pageSize
+    ;[rows] = await pool.query(baseQuery, [departmentId, ...filterParams, pageSize, offset])
+  }
+
+  res.json({
+    items: rows,
+    page,
+    pageSize,
+    total,
+    totalPages,
+    search: searchTerm
+  })
 })
 
 dashboardsRouter.get('/department/stats', requireAuth, requireRole('STAFF', 'ADMIN'), async (req: Request, res: Response) => {

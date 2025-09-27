@@ -112,3 +112,26 @@
     @apply text-xs text-neutral-500 dark:text-white/40;
   }
 }
+
+@keyframes page-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer utilities {
+  .page-slide-up {
+    animation: page-slide-up 0.65s ease-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .page-slide-up {
+      animation: none;
+    }
+  }
+}

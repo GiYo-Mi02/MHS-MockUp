@@ -18,13 +18,22 @@ export function Header() {
     <header className="relative z-20 border-b border-neutral-200 bg-white/80 backdrop-blur dark:border-white/10 dark:bg-black/20">
       <div className="absolute inset-0 bg-gradient-to-r from-brand/15 via-transparent to-brand/15 dark:from-brand/25 dark:to-brand/30" aria-hidden />
       <div className="relative container flex items-center justify-between py-5">
-        <Link to="/" className="flex items-center gap-3 text-neutral-900 transition hover:opacity-90 dark:text-white">
-          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand text-white shadow-lg shadow-brand/40">
-            <span className="text-lg font-bold">MR</span>
+        <Link
+          to="/"
+          aria-label="Go to MakatiReport home"
+          className="flex items-center gap-3 text-neutral-900 transition hover:opacity-90 dark:text-white"
+        >
+          <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-transparent shadow-lg shadow-brand/40 ring-2 ring-brand/40 dark:bg-transparent">
+            <img
+              src="/Makati-Cares.jpg"
+              alt="Makati Cares logo"
+              className="h-full w-full object-cover"
+              loading="eager"
+            />
           </span>
           <div>
             <div className="text-sm uppercase tracking-[0.3em] text-neutral-500 dark:text-white/60">City of Makati</div>
-            <div className="text-lg font-semibold">MakatiReport</div>
+            <div className="text-lg font-semibold">Makati-Cares</div>
           </div>
         </Link>
 
