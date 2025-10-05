@@ -14,6 +14,8 @@ import { Track } from './pages/Track'
 import { SignIn } from './pages/SignIn'
 import { Dashboard } from './pages/Dashboard'
 import { SignUp } from './pages/SignUp'
+import { MyReports } from './pages/MyReports'
+import { VerifyAccount } from './pages/VerifyAccount'
 
 function AnimatedRoutes() {
   const location = useLocation()
@@ -25,9 +27,11 @@ function AnimatedRoutes() {
         <Routes location={location}>
           <Route path="/" element={<Home />} />
           <Route path="/report" element={<Report />} />
+          <Route path="/my-reports" element={<MyReports />} />
           <Route path="/track/:trackingId?" element={<Track />} />
           <Route path="/signin" element={<SignIn />} />
           <Route path="/signup" element={<SignUp />} />
+          <Route path="/verify" element={<VerifyAccount />} />
           <Route path="/dashboard/*" element={<Dashboard />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

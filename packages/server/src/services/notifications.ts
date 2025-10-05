@@ -1,4 +1,5 @@
 import { pool } from '../db'
+import type { TrustLevel } from './trust'
 
 export type CreateNotificationData = {
   reportId: number
@@ -42,7 +43,11 @@ export async function notifyDepartmentOfNewReport(
   departmentId: number,
   reportTitle: string,
   citizenName?: string,
-  trackingId?: string
+  trackingId?: string,
+  options?: {
+    requiresManualReview?: boolean
+    trustLevel?: TrustLevel
+  }
 ): Promise<void> {
   try {
     // Get all staff in the department
@@ -52,9 +57,11 @@ export async function notifyDepartmentOfNewReport(
     )
     
     const staff = staffRows as Array<{ staff_id: number }>
-  const submitterName = citizenName || 'Anonymous citizen'
-  const tracking = trackingId ? ` (ID ${trackingId})` : ''
-  const message = `📋 New report assigned${tracking}: "${reportTitle}" submitted by ${submitterName}`
+    const submitterName = citizenName || 'Anonymous citizen'
+    const tracking = trackingId ? ` (ID ${trackingId})` : ''
+    const manualFlag = options?.requiresManualReview ? ' ⚠️ Manual review required' : ''
+    const trustNote = options?.trustLevel ? ` [Citizen trust: ${options.trustLevel}]` : ''
+    const message = `📋 New report assigned${tracking}: "${reportTitle}" submitted by ${submitterName}${manualFlag}${trustNote}`
     
     // Create notifications for all department staff
     for (const member of staff) {

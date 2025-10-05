@@ -5,6 +5,7 @@ import { NotificationDropdown } from './NotificationDropdown'
 
 const navLinks = [
   { to: '/report', label: 'Submit Report', private: false },
+  { to: '/my-reports', label: 'My Reports', private: false, citizenOnly: true },
   { to: '/dashboard', label: 'Dashboard', private: true }
 ]
 
@@ -23,11 +24,11 @@ export function Header() {
           aria-label="Go to MakatiReport home"
           className="flex items-center gap-3 text-neutral-900 transition hover:opacity-90 dark:text-white"
         >
-          <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-transparent shadow-lg shadow-brand/40 ring-2 ring-brand/40 dark:bg-transparent">
+          <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow-lg shadow-brand/40 dark:bg-white/90">
             <img
-              src="/Makati-Cares.jpg"
+              src="/Makati-Cares.png"
               alt="Makati Cares logo"
-              className="h-full w-full object-cover"
+              className="h-full w-full object-contain"
               loading="eager"
             />
           </span>
@@ -39,7 +40,10 @@ export function Header() {
 
         <nav className="hidden items-center gap-2 text-sm font-medium md:flex">
           {navLinks
-            .filter((link) => (link.private ? canSeeDashboard : true))
+            .filter((link) => {
+              if (link.citizenOnly) return user?.role === 'CITIZEN'
+              return link.private ? canSeeDashboard : true
+            })
             .map((link) => {
               const isActive = location.pathname.startsWith(link.to)
               return (

@@ -14,6 +14,10 @@ INSERT INTO departments (name, code, description, contact_email, contact_number)
 ('Infrastructure', 'ROADS', 'Maintains roads and public works', 'infrastructure@makati.gov', '02-888-1004')
 ON DUPLICATE KEY UPDATE description=VALUES(description), contact_email=VALUES(contact_email), contact_number=VALUES(contact_number);
 
+INSERT INTO departments (name, code, description, contact_email, contact_number) VALUES
+('General Services Desk', 'OTHERS', 'Handles uncategorized citizen concerns and escalations', 'support@makati.gov', '02-888-1005')
+ON DUPLICATE KEY UPDATE description=VALUES(description), contact_email=VALUES(contact_email), contact_number=VALUES(contact_number);
+
 INSERT INTO sla_policies (category, urgency_level, expected_resolution_hours) VALUES
 ('GARBAGE', 'Regular', 48)
 ON DUPLICATE KEY UPDATE expected_resolution_hours=VALUES(expected_resolution_hours);
@@ -24,6 +28,10 @@ ON DUPLICATE KEY UPDATE expected_resolution_hours=VALUES(expected_resolution_hou
 
 INSERT INTO sla_policies (category, urgency_level, expected_resolution_hours) VALUES
 ('SAFETY', 'Urgent', 6)
+ON DUPLICATE KEY UPDATE expected_resolution_hours=VALUES(expected_resolution_hours);
+
+INSERT INTO sla_policies (category, urgency_level, expected_resolution_hours) VALUES
+('OTHERS', 'Regular', 72)
 ON DUPLICATE KEY UPDATE expected_resolution_hours=VALUES(expected_resolution_hours);
 
 INSERT INTO admins (full_name, email, password_hash)
@@ -50,20 +58,55 @@ SELECT department_id, 'Infrastructure Staff', 'staff', 'infrastructure.staff@mak
 FROM departments WHERE name = 'Infrastructure'
 ON DUPLICATE KEY UPDATE full_name=VALUES(full_name), password_hash=VALUES(password_hash);
 
-INSERT INTO citizens (full_name, contact_number, email, password_hash, is_anonymous)
-VALUES ('Juan Dela Cruz', '09171234567', 'juan@example.com', '$2a$10$0HIHNJp116wRP4t2Uh.the2z8sgCDU6xF8wdjdMv8FAWk9XZ.mMiC', FALSE)
-ON DUPLICATE KEY UPDATE full_name=VALUES(full_name), contact_number=VALUES(contact_number), password_hash=VALUES(password_hash);
+INSERT INTO department_staff (department_id, full_name, role, email, password_hash)
+SELECT department_id, 'Citizen Support Staff', 'staff', 'support.staff@makati.gov', '$2a$10$0HIHNJp116wRP4t2Uh.the2z8sgCDU6xF8wdjdMv8FAWk9XZ.mMiC'
+FROM departments WHERE name = 'General Services Desk'
+ON DUPLICATE KEY UPDATE full_name=VALUES(full_name), password_hash=VALUES(password_hash);
+
+INSERT INTO citizens (
+	full_name,
+	contact_number,
+	email,
+	password_hash,
+	is_anonymous,
+	is_verified,
+	verification_method,
+	verified_at,
+	trust_score
+)
+VALUES (
+	'Juan Dela Cruz',
+	'09171234567',
+	'juan@example.com',
+	'$2a$10$0HIHNJp116wRP4t2Uh.the2z8sgCDU6xF8wdjdMv8FAWk9XZ.mMiC',
+	FALSE,
+	TRUE,
+	'email',
+	'2025-06-01 08:00:00',
+	3
+)
+ON DUPLICATE KEY UPDATE
+	full_name = VALUES(full_name),
+	contact_number = VALUES(contact_number),
+	password_hash = VALUES(password_hash),
+	is_anonymous = VALUES(is_anonymous),
+	is_verified = VALUES(is_verified),
+	verification_method = VALUES(verification_method),
+	verified_at = VALUES(verified_at),
+	trust_score = VALUES(trust_score);
 
 SET @citizen_id := (SELECT citizen_id FROM citizens WHERE email = 'juan@example.com');
 SET @garbage_dept := (SELECT department_id FROM departments WHERE code = 'GARBAGE');
 SET @traffic_dept := (SELECT department_id FROM departments WHERE code = 'TRAFFIC');
 SET @safety_dept := (SELECT department_id FROM departments WHERE code = 'SAFETY');
 SET @roads_dept := (SELECT department_id FROM departments WHERE code = 'ROADS');
+SET @others_dept := (SELECT department_id FROM departments WHERE code = 'OTHERS');
 
 SET @garbage_staff := (SELECT staff_id FROM department_staff WHERE email = 'sanitation.staff@makati.gov');
 SET @traffic_staff := (SELECT staff_id FROM department_staff WHERE email = 'traffic.staff@makati.gov');
 SET @safety_staff := (SELECT staff_id FROM department_staff WHERE email = 'safety.staff@makati.gov');
 SET @roads_staff := (SELECT staff_id FROM department_staff WHERE email = 'infrastructure.staff@makati.gov');
+SET @others_staff := (SELECT staff_id FROM department_staff WHERE email = 'support.staff@makati.gov');
 
 INSERT INTO reports (
 	citizen_id,
@@ -79,6 +122,7 @@ INSERT INTO reports (
 	location_lng,
 	assigned_department_id,
 	assigned_staff_id,
+	is_anonymous,
 	expected_resolution_hours,
 	created_at,
 	assigned_at,
@@ -98,6 +142,7 @@ VALUES (
 	121.022456,
 	@garbage_dept,
 	@garbage_staff,
+	FALSE,
 	48,
 	'2025-07-01 09:15:00',
 	'2025-07-01 10:00:00',
@@ -133,6 +178,63 @@ INSERT INTO reports (
 	location_lng,
 	assigned_department_id,
 	assigned_staff_id,
+	is_anonymous,
+	expected_resolution_hours,
+	created_at,
+	assigned_at,
+	resolved_at
+)
+VALUES (
+	@citizen_id,
+	'MR-20250718-007',
+	'Community Assistance Request',
+	'OTHERS',
+	'Barangay is asking for assistance coordinating volunteers for tree planting.',
+	'Regular',
+	'In Progress',
+	'Barangay Bel-Air Multi-purpose Hall',
+	'Lobby information desk',
+	14.558742,
+	121.024981,
+	@others_dept,
+	@others_staff,
+	FALSE,
+	72,
+	'2025-07-18 11:05:00',
+	'2025-07-18 11:30:00',
+	NULL
+)
+ON DUPLICATE KEY UPDATE
+	title=VALUES(title),
+	description=VALUES(description),
+	status=VALUES(status),
+	assigned_department_id=VALUES(assigned_department_id),
+	assigned_staff_id=VALUES(assigned_staff_id),
+	expected_resolution_hours=VALUES(expected_resolution_hours),
+	created_at=VALUES(created_at),
+	assigned_at=VALUES(assigned_at),
+	resolved_at=VALUES(resolved_at),
+	urgency_level=VALUES(urgency_level),
+	location_address=VALUES(location_address),
+	location_landmark=VALUES(location_landmark),
+	location_lat=VALUES(location_lat),
+	location_lng=VALUES(location_lng);
+
+INSERT INTO reports (
+	citizen_id,
+	tracking_id,
+	title,
+	category,
+	description,
+	urgency_level,
+	status,
+	location_address,
+	location_landmark,
+	location_lat,
+	location_lng,
+	assigned_department_id,
+	assigned_staff_id,
+	is_anonymous,
 	expected_resolution_hours,
 	created_at,
 	assigned_at,
@@ -152,6 +254,7 @@ VALUES (
 	121.019876,
 	@safety_dept,
 	@safety_staff,
+	FALSE,
 	6,
 	'2025-07-05 07:45:00',
 	'2025-07-05 08:10:00',
@@ -187,6 +290,7 @@ INSERT INTO reports (
 	location_lng,
 	assigned_department_id,
 	assigned_staff_id,
+	is_anonymous,
 	expected_resolution_hours,
 	created_at,
 	assigned_at,
@@ -206,6 +310,7 @@ VALUES (
 	121.030215,
 	@traffic_dept,
 	@traffic_staff,
+	FALSE,
 	24,
 	'2025-07-10 16:20:00',
 	'2025-07-10 16:45:00',
@@ -241,6 +346,7 @@ INSERT INTO reports (
 	location_lng,
 	assigned_department_id,
 	assigned_staff_id,
+	is_anonymous,
 	expected_resolution_hours,
 	created_at,
 	assigned_at,
@@ -260,6 +366,7 @@ VALUES (
 	121.025741,
 	@roads_dept,
 	@roads_staff,
+	FALSE,
 	72,
 	'2025-07-15 06:30:00',
 	NULL,
@@ -295,6 +402,7 @@ INSERT INTO reports (
 	location_lng,
 	assigned_department_id,
 	assigned_staff_id,
+	is_anonymous,
 	expected_resolution_hours,
 	created_at,
 	assigned_at,
@@ -314,6 +422,7 @@ VALUES (
 	121.033512,
 	@garbage_dept,
 	@garbage_staff,
+	FALSE,
 	48,
 	'2025-06-20 07:10:00',
 	'2025-06-20 09:00:00',
@@ -349,6 +458,7 @@ INSERT INTO reports (
 	location_lng,
 	assigned_department_id,
 	assigned_staff_id,
+	is_anonymous,
 	expected_resolution_hours,
 	created_at,
 	assigned_at,
@@ -368,6 +478,7 @@ VALUES (
 	121.028765,
 	@traffic_dept,
 	@traffic_staff,
+	FALSE,
 	24,
 	'2025-06-28 22:15:00',
 	'2025-06-28 22:30:00',
@@ -522,4 +633,19 @@ FROM reports r
 WHERE r.tracking_id = 'MR-20250628-006'
 	AND NOT EXISTS (
 		SELECT 1 FROM report_status_logs l WHERE l.report_id = r.report_id AND l.action = 'Incident Cleared'
+	);
+
+INSERT INTO report_status_logs (report_id, action, actor_type, actor_id, old_status, new_status, remarks, created_at)
+SELECT r.report_id,
+			 'Initial Coordination',
+			 'staff',
+			 @others_staff,
+			 'Pending',
+			 'In Progress',
+			 'Coordinating with barangay council to align volunteer schedule.',
+			 '2025-07-18 11:35:00'
+FROM reports r
+WHERE r.tracking_id = 'MR-20250718-007'
+	AND NOT EXISTS (
+		SELECT 1 FROM report_status_logs l WHERE l.report_id = r.report_id AND l.action = 'Initial Coordination'
 	);

@@ -28,6 +28,19 @@ CREATE TABLE citizens (
   email VARCHAR(100) UNIQUE,
   password_hash VARCHAR(255),
   is_anonymous BOOLEAN DEFAULT FALSE,
+  is_verified BOOLEAN DEFAULT FALSE,
+  verification_method ENUM('email','phone','manual') DEFAULT 'email',
+  verification_code_hash VARCHAR(255),
+  verification_expires_at TIMESTAMP NULL,
+  verified_at TIMESTAMP NULL,
+  trust_score INT DEFAULT 0,
+  trust_level ENUM('LOW','MEDIUM','HIGH') GENERATED ALWAYS AS (
+    CASE
+      WHEN trust_score <= -2 THEN 'LOW'
+      WHEN trust_score >= 3 THEN 'HIGH'
+      ELSE 'MEDIUM'
+    END
+  ) STORED,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -72,6 +85,10 @@ CREATE TABLE reports (
   location_lng DECIMAL(9,6),
   assigned_department_id INT,
   assigned_staff_id INT,
+  is_anonymous BOOLEAN DEFAULT FALSE,
+  requires_manual_review BOOLEAN DEFAULT FALSE,
+  trust_credit_applied BOOLEAN DEFAULT FALSE,
+  trust_penalty_applied BOOLEAN DEFAULT FALSE,
   expected_resolution_hours INT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   assigned_at TIMESTAMP NULL,

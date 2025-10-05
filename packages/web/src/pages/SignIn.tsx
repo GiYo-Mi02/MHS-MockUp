@@ -1,5 +1,5 @@
 import { useForm } from 'react-hook-form'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
 
@@ -10,12 +10,23 @@ export function SignIn() {
   const { signin } = useAuth()
   const { showSuccess, showError } = useToast()
   const navigate = useNavigate()
+  const location = useLocation()
+  const searchParams = new URLSearchParams(location.search)
+  const nextParam = searchParams.get('next')
+  const nextPath = nextParam && nextParam.startsWith('/') ? nextParam : '/'
   
   const onSubmit = async (data: Form) => {
     try {
-      await signin(data.email, data.password)
+      const authedUser = await signin(data.email, data.password)
+      if (authedUser?.role === 'CITIZEN' && !authedUser.isVerified) {
+        const safeNext = nextPath === '/verify' ? '/' : nextPath
+        const encodedNext = encodeURIComponent(safeNext)
+        showSuccess('Welcome back!', 'Enter the 6-digit code we sent to finish verifying your account.')
+        navigate(`/verify?next=${encodedNext}`)
+        return
+      }
       showSuccess('Welcome back!', 'You have been signed in successfully.')
-      navigate('/')
+      navigate(nextPath)
     } catch (e: any) {
       const errorMessage = e?.response?.data?.error || 'Sign in failed'
       showError('Sign in failed', errorMessage)

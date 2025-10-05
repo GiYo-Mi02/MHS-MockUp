@@ -53,6 +53,7 @@ export function Track() {
   }
 
   const reportTitle = data?.title || (data?.category ? `${data.category} report` : 'Report details')
+  const requiresManualReview = Boolean(data?.requiresManualReview)
 
   const locationPoint = useMemo<ReportPoint | null>(() => {
     if (!data || data.locationLat == null || data.locationLng == null) return null
@@ -115,6 +116,11 @@ export function Track() {
                   {data.status}
                 </span>
               </div>
+              {requiresManualReview && (
+                <p className="mt-3 text-sm text-amber-700 dark:text-amber-200">
+                  This report is queued for manual review. A coordinator will validate the details before dispatching a response team.
+                </p>
+              )}
               {data.locationAddress && (
                 <p className="mt-4 text-neutral-700 dark:text-white/70">Location: {data.locationAddress}</p>
               )}

@@ -10,14 +10,13 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "strict": true,
-    "baseUrl": ".",
+  "strict": true,
+  "ignoreDeprecations": "5.0",
     "paths": {
-      "@/components/*": ["src/components/*"],
-      "@/pages/*": ["src/pages/*"],
-      "@/lib/*": ["src/lib/*"]
-    }
-  },
+      "@/components/*": ["./src/components/*"],
+      "@/pages/*": ["./src/pages/*"],
+      "@/lib/*": ["./src/lib/*"]
+    }},
   "include": ["src", "vite-env.d.ts"],
   "references": []
 }

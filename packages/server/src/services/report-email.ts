@@ -190,6 +190,7 @@ export async function sendReportSubmissionReceipt(reportId: number): Promise<voi
             r.location_lng as locationLng,
             r.created_at as createdAt,
             r.expected_resolution_hours as expectedResolutionHours,
+            r.is_anonymous as isAnonymous,
             c.email as citizenEmail,
             c.full_name as citizenName
      FROM reports r
@@ -200,7 +201,7 @@ export async function sendReportSubmissionReceipt(reportId: number): Promise<voi
   )
 
   const report = (reportRows as any[])[0]
-  if (!report || !report.citizenEmail) {
+  if (!report || !report.citizenEmail || report.isAnonymous) {
     return
   }
 
@@ -317,6 +318,7 @@ export async function sendReportUpdateNotification({ reportId, message, newStatu
             r.location_address as locationAddress,
             r.location_lat as locationLat,
             r.location_lng as locationLng,
+            r.is_anonymous as isAnonymous,
             c.email as citizenEmail,
             c.full_name as citizenName
      FROM reports r
@@ -326,7 +328,7 @@ export async function sendReportUpdateNotification({ reportId, message, newStatu
     [reportId]
   )
   const report = (reportRows as any[])[0]
-  if (!report || !report.citizenEmail) {
+  if (!report || !report.citizenEmail || report.isAnonymous) {
     return
   }
 

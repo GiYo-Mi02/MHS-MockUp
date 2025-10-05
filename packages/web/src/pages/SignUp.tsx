@@ -8,11 +8,10 @@ type Form = {
   email: string
   password: string
   contactNumber?: string
-  isAnonymous?: boolean
 }
 
 export function SignUp() {
-  const { register, handleSubmit } = useForm<Form>({ defaultValues: { isAnonymous: false } })
+  const { register, handleSubmit } = useForm<Form>()
   const { showSuccess, showError } = useToast()
   const navigate = useNavigate()
 
@@ -22,8 +21,7 @@ export function SignUp() {
         name: data.name,
         email: data.email,
         password: data.password,
-        contactNumber: data.contactNumber,
-        isAnonymous: !!data.isAnonymous
+        contactNumber: data.contactNumber
       }
       await api.post('/auth/signup', payload)
       showSuccess('Account created!', 'You can now sign in with your credentials.')
@@ -58,13 +56,6 @@ export function SignUp() {
             <label className="stat-label">Contact number</label>
             <input className="input-field" type="tel" placeholder="09xx xxx xxxx" {...register('contactNumber')} />
           </div>
-          <label className="surface-subtle flex items-start gap-3 px-4 py-3 text-sm">
-            <input className="mt-1" type="checkbox" {...register('isAnonymous')} />
-            <span>
-              Submit reports anonymously
-              <span className="block text-faint">Hide personal information from department responders.</span>
-            </span>
-          </label>
           <button className="btn-primary" type="submit">Create account</button>
         </form>
         <p className="mt-6 text-center text-faint">

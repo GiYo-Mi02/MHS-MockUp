@@ -5,6 +5,8 @@ Department-centric concern reporting system for Makati City.
 Frontend: React + Vite + TailwindCSS
 Backend: Express + TypeScript + MySQL (mysql2) + JWT
 
+📚 **Need the full tour?** Read the complete [system overview documentation](docs/system-overview.md) for architecture, API contracts, workflows, and deployment guidance.
+
 ## Setup (Windows cmd)
 
 1. Install dependencies
@@ -63,5 +65,9 @@ cd packages\web && npm run dev
 - Department queue includes keyword search and five-item pagination for faster triage.
 - Email transport verification endpoint (`/api/health/email`) to spot environment issues quickly.
 - Citizens with registered accounts receive an immediate submission receipt summarizing the title, status, description, and location, plus ongoing status-update emails with the same details.
+- Logged-in citizens can submit anonymously; the API flags reports via `is_anonymous` and skips citizen notifications while still routing to departments.
+- Signed-in citizens can revisit `/my-reports` to see their submission history (backed by `/api/reports/history`) and jump to individual tracking pages.
+- Account verification workflow issues time-bound email codes; unverified citizens can file one report until they confirm their inbox (dev builds surface the code inline when SMTP is disabled).
+- Trust scoring adjusts daily submission limits and auto-routes low-trust reports to the new Manual Review queue, with status badges surfaced across citizen, staff, and admin views.
 - City-level analytics endpoints (`/api/analytics`) now expose cross-department KPIs, day-by-day trends, comparative department metrics, geospatial heatmap buckets, and category performance breakdowns for the admin dashboards.
 - Seed data includes a July 2025 incident set with resolved, in-progress, pending, and cancelled examples so analytics and heatmap views have immediate signal.

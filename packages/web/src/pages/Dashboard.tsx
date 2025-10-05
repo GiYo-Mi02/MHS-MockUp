@@ -12,11 +12,13 @@ type DepartmentReport = {
   category: string
   description: string
   status: string
+  requiresManualReview: boolean
   urgency: string
   createdAt: string
   assignedAt: string | null
   resolvedAt: string | null
   expectedResolutionHours: number | null
+  isAnonymous: boolean
   citizenName: string | null
   citizenEmail: string | null
   citizenContact: string | null
@@ -157,7 +159,7 @@ function formatSlaRate(met: number, breach: number) {
   return `${rate >= 10 ? rate.toFixed(1) : rate.toFixed(2)}%`
 }
 
-const baseStatuses = ['Pending', 'In Progress', 'Resolved', 'Cancelled']
+const baseStatuses = ['Pending', 'Manual Review', 'In Progress', 'Resolved', 'Cancelled', 'Invalid']
 const DEPARTMENT_PAGE_SIZE = 5
 
 function DeptView() {
@@ -180,15 +182,29 @@ function DeptView() {
         api.get('/dashboards/department'),
         api.get('/dashboards/department/stats')
       ])
-      const data = queueRes.data as DepartmentReport[]
-      setReports(data)
+
+      const queuePayload = queueRes.data as DepartmentQueueResponse | DepartmentReport[] | null | undefined
+      const items = Array.isArray(queuePayload)
+        ? queuePayload
+        : queuePayload && typeof queuePayload === 'object' && Array.isArray(queuePayload.items)
+          ? queuePayload.items
+          : []
+
+      const normalizedItems = items.map((item: any) => ({
+        ...item,
+        isAnonymous: Boolean(item.isAnonymous),
+        requiresManualReview: Boolean(item.requiresManualReview)
+      }))
+
+      setReports(normalizedItems as DepartmentReport[])
       setStats(statsRes.data as DepartmentStats)
-      if (!data.length) {
+
+      if (!items.length) {
         setSelectedId(null)
         setTimeline([])
       } else {
-        if (!selectedId || !data.find((r) => r.id === selectedId)) {
-          setSelectedId(data[0].id)
+        if (!selectedId || !items.find((r) => r.id === selectedId)) {
+          setSelectedId(items[0].id)
         }
       }
     } catch (e) {
@@ -400,14 +416,21 @@ function DeptView() {
                   >
                     <td className="px-4 py-3 font-mono text-xs text-neutral-800 dark:text-white/80">{r.trackingId}</td>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-neutral-900 dark:text-white">{r.citizenName || 'Anonymous'}</div>
-                      <div className="text-faint">{r.citizenEmail || '—'}</div>
+                      <div className="font-medium text-neutral-900 dark:text-white">{r.isAnonymous ? 'Anonymous citizen' : (r.citizenName || '—')}</div>
+                      <div className="text-faint">{r.isAnonymous ? 'Hidden for privacy' : (r.citizenEmail || '—')}</div>
                     </td>
                     <td className="px-4 py-3 text-neutral-700 dark:text-white/70">{r.category}</td>
                     <td className="px-4 py-3">
                       <span className="badge-outline">{r.urgency}</span>
                     </td>
-                    <td className="px-4 py-3 text-neutral-700 dark:text-white/70">{r.status}</td>
+                    <td className="px-4 py-3 text-neutral-700 dark:text-white/70">
+                      <div className="flex flex-col gap-1">
+                        <span className="badge-outline w-fit">{r.status}</span>
+                        {r.requiresManualReview && (
+                          <span className="text-[11px] text-amber-700 dark:text-amber-300">Queued for manual review</span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-faint">{new Date(r.createdAt).toLocaleString()}</td>
                   </tr>
                 ))}
@@ -436,12 +459,17 @@ function DeptView() {
                 <span className="badge-outline">
                   {selectedReport.status}
                 </span>
+                {selectedReport.requiresManualReview && (
+                  <p className="mt-2 text-xs text-amber-700 dark:text-amber-200">
+                    This report is pending manual review before dispatch. Validate details before assigning field teams.
+                  </p>
+                )}
               </div>
               <p className="mt-4 whitespace-pre-wrap text-secondary">{selectedReport.description}</p>
               <div className="mt-5 grid gap-3 text-xs text-neutral-600 dark:text-white/60 sm:grid-cols-2">
-                <span><span className="text-faint">Citizen</span><br />{selectedReport.citizenName || 'Anonymous'}</span>
-                <span><span className="text-faint">Email</span><br />{selectedReport.citizenEmail || '—'}</span>
-                <span><span className="text-faint">Contact</span><br />{selectedReport.citizenContact || '—'}</span>
+                <span><span className="text-faint">Citizen</span><br />{selectedReport.isAnonymous ? 'Anonymous citizen' : (selectedReport.citizenName || '—')}</span>
+                <span><span className="text-faint">Email</span><br />{selectedReport.isAnonymous ? 'Hidden for privacy' : (selectedReport.citizenEmail || '—')}</span>
+                <span><span className="text-faint">Contact</span><br />{selectedReport.isAnonymous ? 'Hidden for privacy' : (selectedReport.citizenContact || '—')}</span>
                 <span><span className="text-faint">Submitted</span><br />{new Date(selectedReport.createdAt).toLocaleString()}</span>
                 <span><span className="text-faint">Urgency</span><br />{selectedReport.urgency}</span>
                 <span><span className="text-faint">Expected SLA</span><br />
@@ -476,7 +504,11 @@ function DeptView() {
           <form onSubmit={handleRespond} className="card px-6 py-6 space-y-5">
             <div className="space-y-2">
               <h3 className="text-lg font-semibold">Respond to citizen</h3>
-              <p className="text-secondary">Send an update and optionally adjust the report status. Citizens receive these updates by email once you submit.</p>
+              <p className="text-secondary">
+                {selectedReport.isAnonymous
+                  ? 'Send an internal update or status change. Anonymous citizens do not receive email notifications, so keep your notes concise for internal tracking.'
+                  : 'Send an update and optionally adjust the report status. Citizens receive these updates by email once you submit.'}
+              </p>
             </div>
             <div className="space-y-2">
               <label className="stat-label">Message</label>
@@ -486,7 +518,11 @@ function DeptView() {
                 onChange={(e) => setResponseMessage(e.target.value)}
                 placeholder="Share progress or next steps with the citizen"
               />
-              <p className="text-xs text-neutral-500 dark:text-white/50">Your note is emailed to the citizen along with the latest status history.</p>
+              <p className="text-xs text-neutral-500 dark:text-white/50">
+                {selectedReport.isAnonymous
+                  ? 'Anonymous citizens will not receive an email, but your note is stored with the status history for internal reference.'
+                  : 'Your note is emailed to the citizen along with the latest status history.'}
+              </p>
             </div>
             <div className="space-y-2">
               <label className="stat-label">Update status</label>

@@ -7,6 +7,8 @@ import { requireAuth, requireRole } from '../auth'
 import { sendReportSubmissionReceipt, sendReportUpdateNotification } from '../services/report-email'
 import { notifyDepartmentOfNewReport, notifyCitizenOfStatusChange, notifyCitizenOfResponse } from '../services/notifications'
 import { uploadEvidenceImage } from '../services/storage'
+import { applyTrustTransition, getInitialStatusForTrust, getTrustMetadata } from '../services/trust'
+import type { TrustLevel } from '../services/trust'
 
 export const reportsRouter = Router()
 
@@ -26,6 +28,14 @@ function parseNullableNumber(value: unknown): number | null {
   if (value === undefined || value === null || value === '') return null
   const num = Number(value)
   return Number.isFinite(num) ? num : null
+}
+
+function parseBooleanFlag(value: unknown): boolean {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on'
+  }
+  return Boolean(value)
 }
 
 function normalizeEvidencePayload(value: unknown): Array<{ fileUrl: string; fileType: string }> {
@@ -65,7 +75,9 @@ reportsRouter.post('/', upload.array('evidence', 5), async (req: Request, res: R
   const locationLandmark = typeof body.locationLandmark === 'string' && body.locationLandmark.trim() ? body.locationLandmark.trim() : null
   const locationLat = parseNullableNumber(body.locationLat)
   const locationLng = parseNullableNumber(body.locationLng)
+  const submitAnonymously = parseBooleanFlag(body.submitAnonymously)
   const citizenId = parseNullableNumber(body.citizenId)
+  const isAnonymous = submitAnonymously || !citizenId
   const evidencePayload = normalizeEvidencePayload(body.evidence)
 
   if (!title || !description || !category) return res.status(400).json({ error: 'Missing fields' })
@@ -99,6 +111,71 @@ reportsRouter.post('/', upload.array('evidence', 5), async (req: Request, res: R
 
   const trackingId = generateTrackingId()
 
+  let citizenName: string | undefined
+  let citizenHasEmail = false
+  let citizenTrustLevel: TrustLevel | null = null
+  let citizenDailyLimit: number | null = null
+  let reportsSubmittedToday = 0
+
+  if (citizenId) {
+    const [citizenRows] = await pool.query(
+      'SELECT full_name, email, is_verified, trust_score FROM citizens WHERE citizen_id = ? LIMIT 1',
+      [citizenId]
+    )
+    const citizen = (citizenRows as any[])[0]
+    if (!citizen) {
+      return res.status(404).json({ error: 'Citizen account not found' })
+    }
+
+    citizenName = citizen?.full_name || undefined
+    citizenHasEmail = typeof citizen?.email === 'string' && citizen.email.length > 0
+
+    const isCitizenVerified = Boolean(citizen?.is_verified)
+    const trustScore = Number(citizen?.trust_score ?? 0)
+    const trustMeta = getTrustMetadata(trustScore)
+    citizenTrustLevel = trustMeta.trustLevel
+    citizenDailyLimit = trustMeta.dailyReportLimit ?? null
+
+    if (!isCitizenVerified) {
+      const [countRows] = await pool.query(
+        'SELECT COUNT(*) AS total FROM reports WHERE citizen_id = ?',
+        [citizenId]
+      )
+      const totalReports = Number((countRows as any[])[0]?.total ?? 0)
+      if (totalReports >= 1) {
+        return res.status(403).json({
+          error: 'Please verify your account before submitting more reports.',
+          code: 'VERIFICATION_REQUIRED'
+        })
+      }
+    }
+
+    if (citizenDailyLimit !== null) {
+      const [todayRows] = await pool.query(
+        'SELECT COUNT(*) AS total FROM reports WHERE citizen_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)',
+        [citizenId]
+      )
+      reportsSubmittedToday = Number((todayRows as any[])[0]?.total ?? 0)
+      if (reportsSubmittedToday >= citizenDailyLimit) {
+        return res.status(429).json({
+          error: 'Daily report limit reached for your current trust level.',
+          code: 'TRUST_LIMIT',
+          meta: {
+            trustLevel: citizenTrustLevel,
+            limit: citizenDailyLimit,
+            submittedToday: reportsSubmittedToday
+          }
+        })
+      }
+    }
+  }
+
+  const initialStatusData = citizenTrustLevel
+    ? getInitialStatusForTrust(citizenTrustLevel)
+    : { status: 'Pending', requiresManualReview: false }
+  const initialStatus = initialStatusData.status
+  const requiresManualReview = initialStatusData.requiresManualReview
+
   const [result] = await pool.query<ResultSetHeader>(
     `INSERT INTO reports (
         citizen_id,
@@ -113,21 +190,25 @@ reportsRouter.post('/', upload.array('evidence', 5), async (req: Request, res: R
         location_lat,
         location_lng,
         assigned_department_id,
+        is_anonymous,
+        requires_manual_review,
         expected_resolution_hours
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     , [
-      citizenId || null,
+      citizenId ?? null,
       trackingId,
       title,
       category,
       description,
       urgency,
-      'Pending',
+      initialStatus,
       locationAddress,
       locationLandmark,
       locationLat ?? null,
       locationLng ?? null,
       department.department_id,
+      isAnonymous,
+      requiresManualReview,
       expectedResolutionHours
     ]
   )
@@ -140,11 +221,13 @@ reportsRouter.post('/', upload.array('evidence', 5), async (req: Request, res: R
     , [
       reportId,
       'Report submitted',
-      citizenId ? 'citizen' : 'admin',
-      citizenId || null,
+      'citizen',
+      citizenId ?? null,
       null,
-      'Pending',
-      'Report created'
+      initialStatus,
+      requiresManualReview
+        ? 'Report created · queued for manual review due to citizen trust level'
+        : 'Report created'
     ]
   )
 
@@ -158,19 +241,20 @@ reportsRouter.post('/', upload.array('evidence', 5), async (req: Request, res: R
     )
   }
 
-  let citizenName: string | undefined
-  let citizenHasEmail = false
-  if (citizenId) {
-    const [citizenRows] = await pool.query('SELECT full_name, email FROM citizens WHERE citizen_id = ?', [citizenId])
-    const citizen = (citizenRows as any[])[0]
-    citizenName = citizen?.full_name || undefined
-    citizenHasEmail = typeof citizen?.email === 'string' && citizen.email.length > 0
-  }
-
   // Notify department staff of new report regardless of citizen presence
-  await notifyDepartmentOfNewReport(reportId, department.department_id, title, citizenName, trackingId)
+  await notifyDepartmentOfNewReport(
+    reportId,
+    department.department_id,
+    title,
+    isAnonymous ? undefined : citizenName,
+    trackingId,
+    {
+      requiresManualReview,
+      trustLevel: citizenTrustLevel ?? undefined
+    }
+  )
 
-  if (citizenId && citizenHasEmail) {
+  if (citizenId && citizenHasEmail && !isAnonymous) {
     try {
       await sendReportSubmissionReceipt(reportId)
     } catch (error) {
@@ -178,7 +262,44 @@ reportsRouter.post('/', upload.array('evidence', 5), async (req: Request, res: R
     }
   }
 
-  res.status(201).json({ id: reportId, trackingId, title, status: 'Pending', expectedResolutionHours })
+  res.status(201).json({
+    id: reportId,
+    trackingId,
+    title,
+    status: initialStatus,
+    expectedResolutionHours,
+    requiresManualReview,
+    trustLevel: citizenTrustLevel,
+    submittedToday: citizenId ? reportsSubmittedToday + 1 : null,
+    dailyLimit: citizenDailyLimit
+  })
+})
+
+// Citizen report history
+reportsRouter.get('/history', requireAuth, async (req: Request, res: Response) => {
+  const user = (req as any).user as { sub: string; role: string }
+  if (!user || user.role !== 'CITIZEN') {
+    return res.status(403).json({ error: 'Citizen account required' })
+  }
+
+  const limitParam = Number(req.query.limit)
+  const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(Math.floor(limitParam), 100) : 50
+
+  const [rows] = await pool.query(
+    `SELECT report_id as id,
+            tracking_id as trackingId,
+            status,
+            created_at as createdAt,
+            is_anonymous as isAnonymous,
+            requires_manual_review as requiresManualReview
+     FROM reports
+     WHERE citizen_id = ?
+     ORDER BY created_at DESC
+     LIMIT ?`,
+    [Number(user.sub), limit]
+  )
+
+  res.json(rows)
 })
 
 // Get by trackingId
@@ -200,6 +321,7 @@ reportsRouter.get('/track/:trackingId', async (req, res) => {
             r.assigned_at,
             r.resolved_at,
             r.expected_resolution_hours as expectedResolutionHours,
+            r.requires_manual_review as requiresManualReview,
             d.name as department,
             d.contact_email as departmentEmail,
             d.contact_number as departmentContact
@@ -233,7 +355,10 @@ reportsRouter.patch('/:id/status', requireAuth, requireRole('STAFF', 'ADMIN'), a
   const { status, remarks } = req.body || {}
   if (!status) return res.status(400).json({ error: 'Missing status' })
 
-  const [existingRows] = await pool.query('SELECT status, citizen_id, tracking_id, title FROM reports WHERE report_id = ? LIMIT 1', [id])
+  const [existingRows] = await pool.query(
+    'SELECT status, citizen_id, tracking_id, title, is_anonymous, trust_credit_applied, trust_penalty_applied FROM reports WHERE report_id = ? LIMIT 1',
+    [id]
+  )
   const existing = (existingRows as any[])[0]
   if (!existing) return res.status(404).json({ error: 'Report not found' })
 
@@ -260,16 +385,27 @@ reportsRouter.patch('/:id/status', requireAuth, requireRole('STAFF', 'ADMIN'), a
     ]
   )
 
-  // Send email notification
-  await sendReportUpdateNotification({
+  await applyTrustTransition({
+    citizenId: existing.citizen_id ? Number(existing.citizen_id) : null,
     reportId: Number(id),
-    message: remarks || null,
+    previousStatus: existing.status,
     newStatus: normalizedStatus,
-    actorName: user.name || null
+    trustCreditApplied: Boolean(existing.trust_credit_applied),
+    trustPenaltyApplied: Boolean(existing.trust_penalty_applied)
   })
 
+  // Send email notification
+  if (!existing.is_anonymous) {
+    await sendReportUpdateNotification({
+      reportId: Number(id),
+      message: remarks || null,
+      newStatus: normalizedStatus,
+      actorName: user.name || null
+    })
+  }
+
   // Create in-app notification for citizen
-  if (existing.citizen_id) {
+  if (existing.citizen_id && !existing.is_anonymous) {
     await notifyCitizenOfStatusChange(
       Number(id),
       existing.citizen_id,
@@ -289,7 +425,7 @@ reportsRouter.post('/:id/respond', requireAuth, requireRole('STAFF', 'ADMIN'), a
   const { message } = req.body || {}
   if (!message) return res.status(400).json({ error: 'Message is required' })
 
-  const [existingRows] = await pool.query('SELECT report_id, status, citizen_id, tracking_id, title FROM reports WHERE report_id = ? LIMIT 1', [id])
+  const [existingRows] = await pool.query('SELECT report_id, status, citizen_id, tracking_id, title, is_anonymous FROM reports WHERE report_id = ? LIMIT 1', [id])
   const existing = (existingRows as any[])[0]
   if (!existing) return res.status(404).json({ error: 'Report not found' })
 
@@ -310,15 +446,17 @@ reportsRouter.post('/:id/respond', requireAuth, requireRole('STAFF', 'ADMIN'), a
   )
 
   // Send email notification
-  await sendReportUpdateNotification({
-    reportId: Number(id),
-    message,
-    newStatus: null,
-    actorName: user.name || null
-  })
+  if (!existing.is_anonymous) {
+    await sendReportUpdateNotification({
+      reportId: Number(id),
+      message,
+      newStatus: null,
+      actorName: user.name || null
+    })
+  }
 
   // Create in-app notification for citizen
-  if (existing.citizen_id) {
+  if (existing.citizen_id && !existing.is_anonymous) {
     await notifyCitizenOfResponse(
       Number(id),
       existing.citizen_id,
@@ -347,13 +485,21 @@ reportsRouter.post('/:id/actions', requireAuth, requireRole('STAFF', 'ADMIN'), a
 
   const connection = await pool.getConnection()
   let citizenId: number | null = null
+  let isAnonymous = false
   let statusChanged = false
   let messageRecorded = false
+  let trustCreditApplied = false
+  let trustPenaltyApplied = false
+  let previousStatus: string | null = null
+  let currentStatus: string | null = null
 
   try {
     await connection.beginTransaction()
 
-    const [existingRows] = await connection.query('SELECT status, citizen_id, tracking_id, title FROM reports WHERE report_id = ? LIMIT 1 FOR UPDATE', [id])
+    const [existingRows] = await connection.query(
+      'SELECT status, citizen_id, tracking_id, title, is_anonymous, trust_credit_applied, trust_penalty_applied FROM reports WHERE report_id = ? LIMIT 1 FOR UPDATE',
+      [id]
+    )
     const existing = (existingRows as any[])[0]
     if (!existing) {
       await connection.rollback()
@@ -362,8 +508,12 @@ reportsRouter.post('/:id/actions', requireAuth, requireRole('STAFF', 'ADMIN'), a
 
     const actorType = user.role.toLowerCase()
     const actorId = Number(user.sub)
-    let currentStatus: string | null = existing.status
+    previousStatus = existing.status
+    currentStatus = existing.status
     citizenId = existing.citizen_id ?? null
+    isAnonymous = Boolean(existing.is_anonymous)
+    trustCreditApplied = Boolean(existing.trust_credit_applied)
+    trustPenaltyApplied = Boolean(existing.trust_penalty_applied)
 
     if (newStatus) {
       const shouldResolve = newStatus.toLowerCase() === 'resolved'
@@ -408,6 +558,18 @@ reportsRouter.post('/:id/actions', requireAuth, requireRole('STAFF', 'ADMIN'), a
     }
 
     await connection.commit()
+
+    const finalStatus = currentStatus ?? previousStatus ?? 'Pending'
+
+    await applyTrustTransition({
+      citizenId,
+      reportId: Number(id),
+      previousStatus,
+      newStatus: finalStatus,
+      trustCreditApplied,
+      trustPenaltyApplied,
+      connection
+    })
   } catch (err) {
     await connection.rollback()
     throw err
@@ -415,14 +577,16 @@ reportsRouter.post('/:id/actions', requireAuth, requireRole('STAFF', 'ADMIN'), a
     connection.release()
   }
 
-  await sendReportUpdateNotification({
-    reportId: Number(id),
-    message: trimmedMessage || null,
-    newStatus,
-    actorName: user.name || null
-  })
+  if (!isAnonymous) {
+    await sendReportUpdateNotification({
+      reportId: Number(id),
+      message: trimmedMessage || null,
+      newStatus,
+      actorName: user.name || null
+    })
+  }
 
-  if (citizenId) {
+  if (citizenId && !isAnonymous) {
     const [reportRows] = await pool.query('SELECT tracking_id, title FROM reports WHERE report_id = ? LIMIT 1', [id])
     const report = (reportRows as any[])[0]
     const trackingId = report?.tracking_id
