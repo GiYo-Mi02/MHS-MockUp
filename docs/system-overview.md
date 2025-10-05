@@ -1,6 +1,6 @@
 # Makati Report System Documentation
 
-_Last updated: 2025-10-01_
+_Last updated: 2025-10-05_
 
 ## Purpose
 
@@ -28,7 +28,7 @@ Makati Report is a monorepo that powers a citizen incident reporting platform fo
 
 High-level workflow:
 
-1. Citizens sign up/sign in (optional) and create reports with optional evidence + map pin.
+1. Citizens sign up/sign in (optional) and create reports with optional evidence + map pin. New accounts receive a one-time verification code; unverified citizens can file their first report but must verify before submitting additional cases.
 2. API assigns the report to the matching department, writes status logs, stores evidence (local or Cloudinary), and notifies staff + citizen.
 3. Department staff work the queue via `/dashboard/department`, updating statuses or responses; notifications and emails keep citizens informed.
 4. City administrators access `/dashboard/admin` for analytics, heatmaps, and comparative metrics.
@@ -164,6 +164,7 @@ src/
      ├─ email.ts           # Nodemailer transport + diagnostics
      ├─ notifications.ts   # DB notification helpers
      ├─ report-email.ts    # Templated citizen emails
+   ├─ trust.ts           # Trust scoring rules, transitions, submission gating
      └─ storage.ts         # Cloudinary/local evidence storage abstraction
 ```
 
@@ -172,6 +173,7 @@ src/
 - JWT cookies (7-day expiry) issued on `/api/auth/signin`, stored as `mr_token`.
 - Citizens, staff, and admins share the same cookie format; staff carry `departmentId` for authorization.
 - Middleware in `auth.ts` exports `requireAuth` (ensures valid token) and `requireRole(...roles)` for role-based guards.
+- Citizens verify their email via OTP: `/api/auth/verification/request` issues a six-digit code (dev environments echo the code in responses) and `/api/auth/verification/confirm` validates it. Unverified citizens are redirected to the `/verify` page and limited to a single report until they confirm.
 
 ### Evidence and storage
 
@@ -191,6 +193,8 @@ src/
 | ------- | ---------------------------------- | ------------------------- | ----------------------------------------------------- |
 | `POST`  | `/api/auth/signup`                 | Public                    | Register a new citizen account                        |
 | `POST`  | `/api/auth/signin`                 | Public                    | Issue JWT cookie for citizen/staff/admin              |
+| `POST`  | `/api/auth/verification/request`   | Authenticated citizen     | Send/echo a one-time verification code                |
+| `POST`  | `/api/auth/verification/confirm`   | Authenticated citizen     | Confirm code and unlock multi-report privileges       |
 | `GET`   | `/api/auth/me`                     | Authenticated             | Return current session payload                        |
 | `POST`  | `/api/reports`                     | Public (citizen optional) | Create a report + upload evidence                     |
 | `GET`   | `/api/reports/history`             | Citizen                   | List personal reports by tracking ID and status       |
@@ -231,16 +235,17 @@ src/
 | ----------------------- | --------------- | --------------------------------------------------------------------- |
 | `/`                     | All             | Landing page with feature highlights and CTA                          |
 | `/report`               | Citizens        | Form with drag-and-drop evidence, map pinning, auto reverse-geocoding |
-| `/my-reports`           | Citizens        | Signed-in history showing personal tracking IDs and latest statuses   |
+| `/my-reports`           | Citizens        | History with personal tracking IDs, trust score gauge, and usage tips |
 | `/track/:trackingId?`   | Citizens/guests | Track report status, timeline, evidence                               |
 | `/signin`, `/signup`    | All             | Auth forms (staff/admin seeded via SQL)                               |
+| `/verify`               | Citizens        | OTP entry + resend flow for confirming new accounts                   |
 | `/dashboard/department` | Staff           | Queue table, stats, map pins, respond modal                           |
 | `/dashboard/admin`      | Admin           | KPI cards, trend chart, heatmap, department/category tables           |
 
 ### State + data flow
 
 - `lib/api.ts` wraps Axios with base URL + credentials.
-- `AuthProvider` reads `/api/auth/me`, stores user in context, and injects auth headers.
+- `AuthProvider` reads `/api/auth/me`, stores user in context, and injects auth headers. The context now exposes trust metadata (score, level, daily limits) and keeps unverified citizens on the `/verify` flow until they confirm.
 - Dashboard components fetch queue/stats/analytics via `useEffect` and keep derived state via `useMemo`.
 - Toasts provide feedback for report submissions, auth errors, etc.
 
@@ -269,6 +274,7 @@ src/
 1. **Submission**
    - Citizen completes `/report`, optionally attaching images and a map pin.
    - API assigns the department based on category code, creates status log, calculates SLA, and notifies staff.
+   - If the citizen is unverified and has already filed a report, the API returns `VERIFICATION_REQUIRED`, prompting the UI to redirect them to `/verify` before proceeding.
    - If the citizen is logged in with email, they receive a receipt email summarizing the report.
 
 2. **Department triage**
@@ -278,7 +284,7 @@ src/
 
 3. **Citizen updates**
    - Citizens get email + in-app notifications whenever staff respond or change the status, unless the report was submitted anonymously (those suppress outbound notifications).
-   - Signed-in citizens can browse their submissions via `/my-reports`, which links directly to each tracking page.
+   - Signed-in citizens can browse their submissions via `/my-reports`, which now surfaces trust score gauges, daily usage summaries, and guidance on maintaining higher tiers; each entry links directly to the tracking page.
    - `/track/:trackingId` stays publicly accessible for quick lookups.
 
 4. **Analytics**

@@ -1,9 +1,10 @@
 import { Routes, Route, Link, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { clsx } from 'clsx'
+import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Line, Tooltip, type TooltipProps } from 'recharts'
 import { ReportsMap, type ReportPoint } from '@/components/maps/ReportsMap'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
+import { useToast } from '@/lib/toast'
 
 type DepartmentReport = {
   id: number
@@ -132,10 +133,114 @@ const ANALYTICS_PRESETS = [
 
 const TIMESERIES_MAX_DAYS = 56
 const TIMESERIES_LINE_STROKE = 2.5
-const TIMESERIES_GRADIENT_CREATED = 'url(#gradient-created)'
-const TIMESERIES_GRADIENT_RESOLVED = 'url(#gradient-resolved)'
 
 const numberFormatter = new Intl.NumberFormat('en-US')
+
+type ExportFormat = 'csv' | 'xlsx' | 'pdf'
+
+type TimeseriesBucket = {
+  key: string
+  label: string
+  start: string
+  end: string
+  created: number
+  resolved: number
+  cumulativeCreated: number
+  cumulativeResolved: number
+  tooltip: string
+}
+
+type TimeseriesChartResult = {
+  chartData: TimeseriesBucket[]
+  xTicks: string[]
+  lineTicks: number[]
+  lineMax: number
+}
+
+function buildTimeseriesChartData(data: AnalyticsTimeseriesPoint[]): TimeseriesChartResult {
+  if (!data.length) {
+    return {
+      chartData: [],
+      xTicks: [],
+      lineTicks: [0, 1],
+      lineMax: 1
+    }
+  }
+
+  const recent = data.slice(-TIMESERIES_MAX_DAYS)
+  const maxBuckets = 14
+  const bucketSize = Math.max(1, Math.ceil(recent.length / maxBuckets))
+
+  const buckets: TimeseriesBucket[] = []
+  let runningCreated = 0
+  let runningResolved = 0
+
+  for (let i = 0; i < recent.length; i += bucketSize) {
+    const slice = recent.slice(i, i + bucketSize)
+    if (!slice.length) continue
+
+    const created = slice.reduce((sum, point) => sum + point.created, 0)
+    const resolved = slice.reduce((sum, point) => sum + point.resolved, 0)
+    const start = new Date(slice[0].day)
+    const end = new Date(slice[slice.length - 1].day)
+    const sameDay = start.toDateString() === end.toDateString()
+    const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()
+    const startLabel = start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    const endLabel = end.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+
+    const label = sameDay
+      ? startLabel
+      : sameMonth
+        ? `${startLabel}–${end.getDate()}`
+        : `${startLabel} – ${endLabel}`
+
+    const tooltip = `${startLabel}${sameDay ? '' : ` – ${endLabel}`} · Created ${created} · Resolved ${resolved}`
+
+    runningCreated += created
+    runningResolved += resolved
+
+    buckets.push({
+      key: `${slice[0].day}-${slice[slice.length - 1].day}`,
+      label,
+      start: slice[0].day,
+      end: slice[slice.length - 1].day,
+      created,
+      resolved,
+      cumulativeCreated: runningCreated,
+      cumulativeResolved: runningResolved,
+      tooltip
+    })
+  }
+
+  const lineMax = buckets.reduce(
+    (max, bucket) => Math.max(max, bucket.cumulativeCreated, bucket.cumulativeResolved),
+    0
+  )
+
+  const buildTicks = (max: number, segments: number) => {
+    if (max <= 0) return [0, 1]
+    const ticks = Array.from({ length: segments + 1 }, (_, index) => Math.round((max / segments) * index))
+    if (!ticks.includes(Math.round(max))) {
+      ticks.push(Math.round(max))
+    }
+    const unique = Array.from(new Set(ticks)).sort((a, b) => a - b)
+    if (unique.length <= 1) unique.push(unique[0] + 1)
+    return unique
+  }
+
+  const lineTicks = buildTicks(lineMax, 4)
+  const bucketLabelStep = Math.max(1, Math.ceil(buckets.length / 6))
+  const xTicks = buckets
+    .map((bucket, idx) => (idx % bucketLabelStep === 0 || idx === buckets.length - 1 ? bucket.label : ''))
+    .filter((label) => label)
+
+  return {
+    chartData: buckets,
+    xTicks,
+    lineTicks,
+    lineMax: Math.max(lineMax, 1)
+  }
+}
 
 function formatHours(value: number | null) {
   if (value == null || Number.isNaN(value)) return '—'
@@ -550,6 +655,7 @@ function DeptView() {
 }
 
 function AdminView() {
+  const { showSuccess, showError, showInfo } = useToast()
   const [selectedPreset, setSelectedPreset] = useState<number>(ANALYTICS_PRESETS[0]?.value ?? 30)
   const [state, setState] = useState<AnalyticsState>({
     range: null,
@@ -563,7 +669,10 @@ function AdminView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const mountedRef = useRef(true)
+  const exportMenuRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     mountedRef.current = true
@@ -571,6 +680,19 @@ function AdminView() {
       mountedRef.current = false
     }
   }, [])
+
+  useEffect(() => {
+    if (!exportMenuOpen) return
+    const handleClick = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setExportMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+    }
+  }, [exportMenuOpen])
 
   const fetchAnalytics = useCallback(async (days: number) => {
     setLoading(true)
@@ -656,6 +778,74 @@ function AdminView() {
     if (value === selectedPreset) return
     setSelectedPreset(value)
   }
+
+  const handleExport = useCallback(
+    async (format: ExportFormat) => {
+      if (exporting) return
+
+      const { chartData } = buildTimeseriesChartData(state.timeseries)
+      if (!chartData.length) {
+        setExportMenuOpen(false)
+        showInfo('No analytics data', 'Try refreshing the dashboard and pick a different window.')
+        return
+      }
+
+      setExportMenuOpen(false)
+      setExporting(true)
+
+      const rangeLabel = state.range?.days ?? selectedPreset
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      const fileBase = `analytics-trend-${rangeLabel}d-${timestamp}`
+
+      const rows = chartData.map((bucket) => ({
+        Range: bucket.label,
+        Start: new Date(bucket.start).toLocaleDateString(),
+        End: new Date(bucket.end).toLocaleDateString(),
+        Created: bucket.created,
+        Resolved: bucket.resolved,
+        'Cumulative Created': bucket.cumulativeCreated,
+        'Cumulative Resolved': bucket.cumulativeResolved
+      }))
+
+      try {
+        if (format === 'csv' || format === 'xlsx') {
+          const XLSX = await import('xlsx')
+          const worksheet = XLSX.utils.json_to_sheet(rows)
+          const workbook = XLSX.utils.book_new()
+          XLSX.utils.book_append_sheet(workbook, worksheet, 'Trend')
+          const extension = format === 'xlsx' ? 'xlsx' : 'csv'
+          XLSX.writeFile(workbook, `${fileBase}.${extension}`, { bookType: extension })
+        } else if (format === 'pdf') {
+          const [{ default: jsPDF }, autoTableModule] = await Promise.all([
+            import('jspdf'),
+            import('jspdf-autotable')
+          ])
+          const autoTable = (autoTableModule.default ?? autoTableModule) as (doc: any, options: any) => void
+          const doc = new jsPDF({ orientation: 'landscape' })
+          autoTable(doc, {
+            head: [['Range', 'Created', 'Resolved', 'Cumulative Created', 'Cumulative Resolved']],
+            body: chartData.map((bucket) => [
+              bucket.label,
+              numberFormatter.format(bucket.created),
+              numberFormatter.format(bucket.resolved),
+              numberFormatter.format(bucket.cumulativeCreated),
+              numberFormatter.format(bucket.cumulativeResolved)
+            ]),
+            styles: { fontSize: 10 }
+          })
+          doc.save(`${fileBase}.pdf`)
+        }
+
+        showSuccess('Export ready', `Downloaded ${format.toUpperCase()} file.`)
+      } catch (err) {
+        console.error(err)
+        showError('Export failed', 'Please try again in a moment.')
+      } finally {
+        setExporting(false)
+      }
+    },
+    [exporting, state.timeseries, state.range, selectedPreset, showInfo, showSuccess, showError]
+  )
 
   const summary = state.summary
   const range = state.range
@@ -775,11 +965,50 @@ function AdminView() {
                   <h3 className="text-lg font-semibold">Trend of created vs resolved</h3>
                   <p className="text-sm text-secondary">Shows the last {Math.min(state.timeseries.length, TIMESERIES_MAX_DAYS)} days.</p>
                 </div>
-                {lastUpdated ? (
-                  <span className="text-xs text-secondary">
-                    Updated {lastUpdated.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                ) : null}
+                <div className="flex items-center gap-3">
+                  {lastUpdated ? (
+                    <span className="text-xs text-secondary">
+                      Updated {lastUpdated.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  ) : null}
+                  {state.timeseries.length ? (
+                    <div className="relative" ref={exportMenuRef}>
+                      <button
+                        type="button"
+                        onClick={() => setExportMenuOpen((open) => !open)}
+                        disabled={exporting}
+                        className="rounded-full border border-neutral-300 px-4 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:text-white dark:hover:bg-white/10"
+                      >
+                        {exporting ? 'Preparing…' : 'Export'}
+                      </button>
+                      {exportMenuOpen ? (
+                        <div className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-lg border border-neutral-200 bg-white text-sm shadow-lg dark:border-white/10 dark:bg-neutral-900">
+                          <button
+                            type="button"
+                            onClick={() => void handleExport('csv')}
+                            className="block w-full px-4 py-2 text-left text-neutral-700 hover:bg-neutral-100 dark:text-white dark:hover:bg-white/10"
+                          >
+                            Export as CSV
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleExport('xlsx')}
+                            className="block w-full px-4 py-2 text-left text-neutral-700 hover:bg-neutral-100 dark:text-white dark:hover:bg-white/10"
+                          >
+                            Export as Excel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleExport('pdf')}
+                            className="block w-full px-4 py-2 text-left text-neutral-700 hover:bg-neutral-100 dark:text-white dark:hover:bg-white/10"
+                          >
+                            Export as PDF
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </div>
               <AnalyticsTimeseriesChart data={state.timeseries} />
             </div>
@@ -896,192 +1125,131 @@ function AdminView() {
 }
 
 function AnalyticsTimeseriesChart({ data }: { data: AnalyticsTimeseriesPoint[] }) {
-  if (!data.length) {
+  const axisColor = 'rgba(148, 163, 184, 0.85)'
+  const rightAxisColor = 'rgba(14, 165, 233, 0.8)'
+  const gridColor = 'rgba(148, 163, 184, 0.12)'
+
+  const { chartData, xTicks, lineTicks, lineMax } = useMemo(() => buildTimeseriesChartData(data), [data])
+
+  const renderXAxisTick = ({ x = 0, y = 0, payload }: any) => {
+    const value = String(payload?.value ?? '')
+    const lines = value.split(' – ')
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <text fill={axisColor} fontSize={11} textAnchor="middle">
+          {lines.map((line, index) => (
+            <tspan key={`${line}-${index}`} x={0} dy={index === 0 ? 14 : 12}>
+              {line}
+            </tspan>
+          ))}
+        </text>
+      </g>
+    )
+  }
+
+  const renderTooltip = ({ active, payload }: TooltipProps<number, string>) => {
+    if (!active || !payload?.length) return null
+    const point = payload[0]?.payload as TimeseriesBucket | undefined
+    if (!point) return null
+
+    return (
+      <div className="min-w-[220px] rounded-lg border border-neutral-200/80 bg-white/95 p-3 text-xs text-neutral-700 shadow-lg backdrop-blur dark:border-white/10 dark:bg-neutral-900/90 dark:text-neutral-100">
+        <p className="text-sm font-semibold text-neutral-900 dark:text-white">{point.tooltip}</p>
+        <div className="mt-2 space-y-1 text-[13px]">
+          <div className="flex items-center justify-between text-sky-600 dark:text-sky-300">
+            <span>Created</span>
+            <span className="font-mono">{numberFormatter.format(point.created)}</span>
+          </div>
+          <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-300">
+            <span>Resolved</span>
+            <span className="font-mono">{numberFormatter.format(point.resolved)}</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between text-sky-700 dark:text-sky-200">
+            <span>Cumulative created</span>
+            <span className="font-mono">{numberFormatter.format(point.cumulativeCreated)}</span>
+          </div>
+          <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-200">
+            <span>Cumulative resolved</span>
+            <span className="font-mono">{numberFormatter.format(point.cumulativeResolved)}</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!chartData.length) {
     return <p className="mt-4 text-sm text-secondary">No timeline data captured for this window.</p>
   }
 
-  const recent = data.slice(-TIMESERIES_MAX_DAYS)
-  const maxBuckets = 14
-  const bucketSize = Math.max(1, Math.ceil(recent.length / maxBuckets))
-
-  const buckets = [] as Array<{
-    key: string
-    created: number
-    resolved: number
-    cumulativeCreated: number
-    cumulativeResolved: number
-    label: string
-    tooltip: string
-  }>
-
-  let runningCreated = 0
-  let runningResolved = 0
-
-  for (let i = 0; i < recent.length; i += bucketSize) {
-    const slice = recent.slice(i, i + bucketSize)
-    const created = slice.reduce((sum, point) => sum + point.created, 0)
-    const resolved = slice.reduce((sum, point) => sum + point.resolved, 0)
-    const start = new Date(slice[0].day)
-    const end = new Date(slice[slice.length - 1].day)
-    const sameDay = start.toDateString() === end.toDateString()
-    const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()
-    const startLabel = start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    const endLabel = end.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-
-    const label = sameDay
-      ? startLabel
-      : sameMonth
-        ? `${startLabel}–${end.getDate()}`
-        : `${startLabel} – ${endLabel}`
-
-    const tooltip = `${startLabel}${sameDay ? '' : ` – ${endLabel}`} · Created ${created} · Resolved ${resolved}`
-
-    runningCreated += created
-    runningResolved += resolved
-
-    buckets.push({
-      key: `${slice[0].day}-${slice[slice.length - 1].day}`,
-      created,
-      resolved,
-      cumulativeCreated: runningCreated,
-      cumulativeResolved: runningResolved,
-      label,
-      tooltip
-    })
-  }
-
-  const barMax = buckets.reduce((max, bucket) => Math.max(max, bucket.created, bucket.resolved), 0) || 1
-  const lineMax = buckets.reduce(
-    (max, bucket) => Math.max(max, bucket.cumulativeCreated, bucket.cumulativeResolved),
-    0
-  ) || 1
-
-  const barTickCount = 4
-  const lineTickCount = 4
-  const barTicks = Array.from({ length: barTickCount + 1 }, (_, index) => Math.round((barMax / barTickCount) * index))
-  const lineTicks = Array.from({ length: lineTickCount + 1 }, (_, index) => Math.round((lineMax / lineTickCount) * index))
-
-  const polyPoints = (type: 'created' | 'resolved') => {
-    if (!buckets.length) return ''
-    const points = buckets.map((bucket, idx) => {
-      const value = type === 'created' ? bucket.cumulativeCreated : bucket.cumulativeResolved
-      const normalized = value / (lineMax || 1)
-      const x = ((idx + 0.5) / buckets.length) * 100
-      const y = 100 - normalized * 100
-      return `${x},${y}`
-    })
-    return points.join(' ')
-  }
+  const rightAxisMax = Math.max(lineMax, 1)
 
   return (
     <div className="mt-5 space-y-4">
       <div className="relative overflow-hidden rounded-2xl border border-neutral-200/70 bg-gradient-to-b from-white via-white to-neutral-50 px-5 pb-6 pt-6 shadow-inner dark:border-white/10 dark:from-white/5 dark:via-white/0 dark:to-white/0">
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 flex flex-col justify-between py-6 pl-10 pr-3">
-            {barTicks.map((tick, idx) => (
-              <div key={tick} className="relative flex items-center gap-2">
-                <span className={clsx('w-10 text-right text-[11px] font-medium text-secondary', idx === barTicks.length - 1 && 'translate-y-1/2')}>
-                  {numberFormatter.format(tick)}
-                </span>
-                <div className="h-px flex-1 bg-neutral-200/70 dark:bg-white/10" />
-              </div>
-            ))}
-          </div>
-          <div className="pointer-events-none absolute inset-0 flex flex-col justify-between py-6 pr-10 pl-3">
-            {lineTicks.map((tick, idx) => (
-              <div key={`line-${tick}`} className="relative flex justify-end">
-                <span
-                  className={clsx(
-                    'w-12 text-right text-[11px] font-medium text-sky-700/70 dark:text-emerald-100/80',
-                    idx === lineTicks.length - 1 && 'translate-y-1/2',
-                    idx === 0 && '-translate-y-1/2'
-                  )}
-                >
-                  {numberFormatter.format(tick)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="relative h-64">
-          <svg className="absolute inset-x-0 top-0 h-0 w-0">
-            <defs>
-              <linearGradient id="gradient-created" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.4" />
-                <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0" />
-              </linearGradient>
-              <linearGradient id="gradient-resolved" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#34d399" stopOpacity="0.4" />
-                <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
-              </linearGradient>
-            </defs>
-          </svg>
-          {buckets.length ? (
-            <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <polyline
-                points={polyPoints('created')}
-                fill="none"
-                stroke="#0284c7"
+        <div className="h-72 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData} margin={{ top: 24, right: 40, left: 12, bottom: 36 }}>
+              <defs>
+                <linearGradient id="trend-created-gradient" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.05} />
+                </linearGradient>
+                <linearGradient id="trend-resolved-gradient" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="#34d399" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="#10b981" stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+
+              <CartesianGrid strokeDasharray="4 4" stroke={gridColor} vertical={false} />
+              <XAxis
+                dataKey="label"
+                ticks={xTicks}
+                tick={renderXAxisTick}
+                height={58}
+                tickMargin={18}
+                interval={0}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                ticks={lineTicks}
+                domain={[0, rightAxisMax]}
+                allowDecimals={false}
+                width={44}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: rightAxisColor, fontSize: 11 }}
+              />
+              <Tooltip content={renderTooltip} cursor={{ fill: 'rgba(56, 189, 248, 0.08)' }} />
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="cumulativeCreated"
+                name="Created"
+                stroke="#0ea5e9"
                 strokeWidth={TIMESERIES_LINE_STROKE}
-                strokeLinecap="round"
-                strokeLinejoin="round"
+                dot={false}
+                strokeDasharray="0"
+                activeDot={{ r: 4 }}
               />
-              <polyline
-                points={polyPoints('resolved')}
-                fill="none"
-                stroke="#059669"
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="cumulativeResolved"
+                name="Resolved"
+                stroke="#10b981"
                 strokeWidth={TIMESERIES_LINE_STROKE}
-                strokeLinecap="round"
-                strokeLinejoin="round"
+                dot={false}
+                strokeDasharray="4 2"
+                activeDot={{ r: 4 }}
               />
-              <polygon
-                points={`0,100 ${polyPoints('created')} 100,100`}
-                fill={TIMESERIES_GRADIENT_CREATED}
-                opacity={0.2}
-              />
-              <polygon
-                points={`0,100 ${polyPoints('resolved')} 100,100`}
-                fill={TIMESERIES_GRADIENT_RESOLVED}
-                opacity={0.2}
-              />
-            </svg>
-          ) : null}
-          <div className="absolute inset-0 flex items-end gap-4 py-6 pl-10 pr-3">
-            {buckets.map((bucket) => {
-              const createdHeight = Math.max(4, Math.round((bucket.created / (barMax || 1)) * 100))
-              const resolvedHeight = Math.max(4, Math.round((bucket.resolved / (barMax || 1)) * 100))
-              return (
-                <div key={bucket.key} className="flex h-full flex-1 flex-col justify-end text-[11px]">
-                  <div className="flex h-full w-full items-end gap-2 rounded-t">
-                    <div
-                      className="flex-1 rounded-t-md bg-gradient-to-t from-sky-500/80 to-sky-400/60 shadow-sm transition-[height] duration-500 ease-out"
-                      style={{ height: `${createdHeight}%` }}
-                      title={`${bucket.tooltip} · Created ${bucket.created}`}
-                      aria-label={`Created ${bucket.created} reports in ${bucket.label}`}
-                    />
-                    <div
-                      className="flex-1 rounded-t-md bg-gradient-to-t from-emerald-500/80 to-emerald-400/60 shadow-sm transition-[height] duration-500 ease-out"
-                      style={{ height: `${resolvedHeight}%` }}
-                      title={`${bucket.tooltip} · Resolved ${bucket.resolved}`}
-                      aria-label={`Resolved ${bucket.resolved} reports in ${bucket.label}`}
-                    />
-                  </div>
-                  <span className="mt-3 block text-center text-[11px] font-medium leading-tight text-secondary">
-                    {bucket.label}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
       </div>
       <div className="flex flex-wrap justify-center gap-6 text-xs text-secondary">
-        <span className="flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> Created (bars)
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Resolved (bars)
-        </span>
         <span className="flex items-center gap-2">
           <span className="h-2 w-5 rounded-full bg-sky-500/70" /> Created cumulative
         </span>
@@ -1089,7 +1257,6 @@ function AnalyticsTimeseriesChart({ data }: { data: AnalyticsTimeseriesPoint[] }
           <span className="h-2 w-5 rounded-full bg-emerald-500/70" /> Resolved cumulative
         </span>
       </div>
-      <p className="text-center text-[11px] text-secondary/80">Left axis tracks per-bucket counts · Right axis tracks cumulative totals.</p>
     </div>
   )
 }
