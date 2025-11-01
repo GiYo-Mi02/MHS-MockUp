@@ -2,7 +2,7 @@
  * K6 STRESS TEST
  * Purpose: Test system beyond normal capacity to find breaking points
  * VUs: Up to 500 concurrent users
- * Duration: 10 minutes
+ * Duration: 60 seconds
  *
  * Simulates peak hours or major incidents (e.g., flooding, power outage)
  * where many citizens report simultaneously
@@ -23,12 +23,12 @@ const successfulReports = new Counter("successful_reports");
 
 export const options = {
   stages: [
-    { duration: "2m", target: 100 }, // Warm up
-    { duration: "2m", target: 200 }, // Approaching stress
-    { duration: "2m", target: 300 }, // Stress level
-    { duration: "2m", target: 400 }, // High stress
-    { duration: "1m", target: 500 }, // Breaking point
-    { duration: "1m", target: 0 }, // Recovery
+    { duration: "10s", target: 100 }, // Warm up
+    { duration: "10s", target: 200 }, // Approaching stress
+    { duration: "10s", target: 300 }, // Stress level
+    { duration: "15s", target: 400 }, // High stress
+    { duration: "10s", target: 500 }, // Breaking point
+    { duration: "5s", target: 0 }, // Recovery
   ],
   thresholds: THRESHOLDS.stress,
 };

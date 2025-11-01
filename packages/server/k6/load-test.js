@@ -2,7 +2,7 @@
  * K6 LOAD TEST
  * Purpose: Test system under normal expected load
  * VUs: Up to 100 concurrent users
- * Duration: 5 minutes
+ * Duration: 60 seconds
  *
  * Simulates a typical day with citizens submitting reports,
  * departments updating statuses, and admins viewing analytics
@@ -30,11 +30,11 @@ const reportsTracked = new Counter("reports_tracked");
 
 export const options = {
   stages: [
-    { duration: "1m", target: 20 }, // Ramp up to 20 users
-    { duration: "2m", target: 50 }, // Ramp up to 50 users
-    { duration: "2m", target: 100 }, // Peak load at 100 users
-    { duration: "1m", target: 50 }, // Ramp down to 50
-    { duration: "1m", target: 0 }, // Ramp down to 0
+    { duration: "15s", target: 20 }, // Ramp up to 20 users
+    { duration: "15s", target: 50 }, // Ramp up to 50 users
+    { duration: "15s", target: 100 }, // Peak load at 100 users
+    { duration: "10s", target: 50 }, // Ramp down to 50
+    { duration: "5s", target: 0 }, // Ramp down to 0
   ],
   thresholds: {
     ...THRESHOLDS.load,

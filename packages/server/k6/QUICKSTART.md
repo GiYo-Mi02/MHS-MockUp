@@ -77,7 +77,7 @@ http_reqs......................: 120     2/s
 
 ## Step 5: Run More Tests
 
-### Normal Load Test (5 minutes)
+### Normal Load Test (60 seconds)
 
 ```cmd
 npm run test:load
@@ -85,7 +85,7 @@ npm run test:load
 
 Simulates 100 concurrent users - typical daily usage
 
-### Stress Test (10 minutes)
+### Stress Test (60 seconds)
 
 ```cmd
 npm run test:stress
@@ -93,13 +93,21 @@ npm run test:stress
 
 Tests with 500 users - finding your limits
 
-### Database Performance
+### Database Performance (60 seconds)
 
 ```cmd
 npm run test:db
 ```
 
 Focuses on database operations
+
+### API Test (60 seconds)
+
+```cmd
+npm run test:api
+```
+
+Tests all major endpoints
 
 ### All Tests
 

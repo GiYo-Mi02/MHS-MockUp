@@ -1,6 +1,7 @@
 /**
  * K6 API COMPREHENSIVE TEST
  * Purpose: Test all major API endpoints with realistic flows
+ * Duration: 60 seconds
  *
  * This test simulates complete user journeys:
  * 1. Citizen signs up, verifies, submits reports, tracks them
@@ -20,7 +21,7 @@ const endpointErrors = new Counter("endpoint_errors");
 
 export const options = {
   vus: 10,
-  duration: "3m",
+  duration: "60s",
   thresholds: {
     http_req_duration: ["p(95)<1000"],
     errors: ["rate<0.05"],

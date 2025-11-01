@@ -23,12 +23,12 @@ const spikeFailed = new Counter("spike_requests_failed");
 
 export const options = {
   stages: [
-    { duration: "10s", target: 10 }, // Normal baseline
-    { duration: "30s", target: 300 }, // SUDDEN SPIKE!
-    { duration: "1m", target: 300 }, // Sustained spike
-    { duration: "30s", target: 500 }, // SECOND SPIKE!
-    { duration: "1m", target: 100 }, // Cool down
-    { duration: "30s", target: 0 }, // Back to normal
+    { duration: "5s", target: 10 }, // Normal baseline
+    { duration: "10s", target: 300 }, // SUDDEN SPIKE!
+    { duration: "20s", target: 300 }, // Sustained spike
+    { duration: "10s", target: 500 }, // SECOND SPIKE!
+    { duration: "10s", target: 100 }, // Cool down
+    { duration: "5s", target: 0 }, // Back to normal
   ],
   thresholds: THRESHOLDS.spike,
 };

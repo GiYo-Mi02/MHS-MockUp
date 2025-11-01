@@ -25,9 +25,9 @@ const dbErrors = new Counter("db_errors");
 
 export const options = {
   stages: [
-    { duration: "1m", target: 50 },
-    { duration: "3m", target: 100 },
-    { duration: "1m", target: 0 },
+    { duration: "15s", target: 50 },
+    { duration: "30s", target: 100 },
+    { duration: "15s", target: 0 },
   ],
   thresholds: {
     db_insert_duration: ["p(95)<800"],
