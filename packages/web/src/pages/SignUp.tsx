@@ -1,7 +1,8 @@
 import { useForm } from 'react-hook-form'
 import { api } from '@/lib/api'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useToast } from '@/lib/toast'
+import { useAuth } from '@/lib/auth'
 
 type Form = {
   name: string
@@ -14,6 +15,16 @@ export function SignUp() {
   const { register, handleSubmit } = useForm<Form>()
   const { showSuccess, showError } = useToast()
   const navigate = useNavigate()
+  const location = useLocation()
+  const { signin } = useAuth()
+
+  const resolveNextPath = (): string => {
+    const params = new URLSearchParams(location.search)
+    const nextParam = params.get('next')
+    const nextPath = nextParam && nextParam.startsWith('/') ? nextParam : '/'
+    // Avoid looping back to verify itself
+    return nextPath === '/verify' ? '/' : nextPath
+  }
 
   const onSubmit = async (data: Form) => {
     try {
@@ -24,8 +35,13 @@ export function SignUp() {
         contactNumber: data.contactNumber
       }
       await api.post('/auth/signup', payload)
-      showSuccess('Account created!', 'You can now sign in with your credentials.')
-      navigate('/signin')
+
+      // Create a session so the user can access /verify and request/confirm codes
+      await signin(data.email, data.password)
+
+      const encodedNext = encodeURIComponent(resolveNextPath())
+      showSuccess('Account created!', 'Enter the 6-digit code we sent to verify your account.')
+      navigate(`/verify?next=${encodedNext}`)
     } catch (e: any) {
       const errorMessage = e?.response?.data?.error || 'Sign up failed'
       showError('Sign up failed', errorMessage)

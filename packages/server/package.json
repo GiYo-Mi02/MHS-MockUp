@@ -12,7 +12,15 @@
     "db:seed": "ts-node-dev --transpile-only scripts/db-seed.ts",
     "lint": "eslint .",
     "format": "prettier -w .",
-    "postinstall": ""
+    "postinstall": "",
+    "test:smoke": "k6 run k6/smoke-test.js",
+    "test:load": "k6 run k6/load-test.js",
+    "test:stress": "k6 run k6/stress-test.js",
+    "test:spike": "k6 run k6/spike-test.js",
+    "test:soak": "k6 run k6/soak-test.js",
+    "test:api": "k6 run k6/api-test.js",
+    "test:db": "k6 run k6/database-test.js",
+    "test:all": "npm run test:smoke && npm run test:api && npm run test:load"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
