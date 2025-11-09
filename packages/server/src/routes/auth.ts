@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
-import { pool } from '../db'
+import { supabaseAdmin } from '../supabase'
 import { requireAuth } from '../auth'
 import { issueVerificationCode, verifyCitizenCode, type VerificationMethod } from '../services/verification'
 import { getTrustMetadata } from '../services/trust'
@@ -27,12 +27,24 @@ authRouter.post('/signup', async (req, res) => {
   const hash = await bcrypt.hash(password, 10)
 
   try {
-    const [result] = await pool.query(
-      `INSERT INTO citizens (full_name, contact_number, email, password_hash, is_anonymous)
-       VALUES (?, ?, ?, ?, ?)`
-      , [name, contactNumber, email, hash, !!isAnonymous]
-    )
-    const insertId = (result as any).insertId
+    const { data: result, error } = await supabaseAdmin
+      .from('citizens')
+      .insert({
+        full_name: name,
+        contact_number: contactNumber,
+        email,
+        password_hash: hash,
+        is_anonymous: !!isAnonymous
+      })
+      .select()
+      .single()
+
+    if (error) {
+      if (error.code === '23505') return res.status(409).json({ error: 'Email already exists' })
+      throw error
+    }
+
+    const insertId = result.citizen_id
     let devVerificationCode: string | undefined
     try {
       const verification = await issueVerificationCode({
@@ -58,7 +70,6 @@ authRouter.post('/signup', async (req, res) => {
       }
     })
   } catch (e: any) {
-    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Email already exists' })
     console.error(e)
     res.status(500).json({ error: 'Signup failed' })
   }
@@ -68,36 +79,77 @@ authRouter.post('/signin', async (req, res) => {
   const { email, password } = req.body || {}
   if (!email || !password) return res.status(400).json({ error: 'Missing fields' })
 
-  const queries = [
-    {
-      role: 'CITIZEN' as Role,
-      sql: `SELECT citizen_id AS id, full_name AS name, email, password_hash, NULL AS departmentId FROM citizens WHERE email = ?`
-    },
-    {
-      role: 'STAFF' as Role,
-      sql: `SELECT staff_id AS id, full_name AS name, email, password_hash, department_id AS departmentId FROM department_staff WHERE email = ?`
-    },
-    {
-      role: 'ADMIN' as Role,
-      sql: `SELECT admin_id AS id, full_name AS name, email, password_hash, NULL AS departmentId FROM admins WHERE email = ?`
-    }
-  ]
-
   let foundUser: any = null
 
-  for (const entry of queries) {
-    const [rows] = await pool.query(entry.sql, [email])
-    const list = rows as any[]
-    if (list.length) {
-      foundUser = { ...list[0], role: entry.role }
-      break
+  // Try CITIZEN
+  const { data: citizenData, error: citizenError } = await supabaseAdmin
+    .from('citizens')
+    .select('citizen_id, full_name, email, password_hash, is_verified')
+    .eq('email', email)
+    .single()
+
+  if (citizenData) {
+    foundUser = {
+      id: citizenData.citizen_id,
+      name: citizenData.full_name,
+      email: citizenData.email,
+      password_hash: citizenData.password_hash,
+      role: 'CITIZEN' as Role,
+      departmentId: null,
+      isVerified: Boolean(citizenData.is_verified)
     }
   }
 
-  if (!foundUser) return res.status(401).json({ error: 'Invalid credentials' })
+  // Try STAFF
+  if (!foundUser) {
+    const { data: staffData, error: staffError } = await supabaseAdmin
+      .from('department_staff')
+      .select('staff_id, full_name, email, password_hash, department_id')
+      .eq('email', email)
+      .single()
+
+    if (staffData) {
+      foundUser = {
+        id: staffData.staff_id,
+        name: staffData.full_name,
+        email: staffData.email,
+        password_hash: staffData.password_hash,
+        role: 'STAFF' as Role,
+        departmentId: staffData.department_id
+      }
+    }
+  }
+
+  // Try ADMIN
+  if (!foundUser) {
+    const { data: adminData, error: adminError } = await supabaseAdmin
+      .from('admins')
+      .select('admin_id, full_name, email, password_hash')
+      .eq('email', email)
+      .single()
+
+    if (adminData) {
+      foundUser = {
+        id: adminData.admin_id,
+        name: adminData.full_name,
+        email: adminData.email,
+        password_hash: adminData.password_hash,
+        role: 'ADMIN' as Role,
+        departmentId: null
+      }
+    }
+  }
+
+  if (!foundUser) {
+    console.error('[signin] User not found for email:', email)
+    return res.status(401).json({ error: 'Invalid credentials' })
+  }
 
   const ok = await bcrypt.compare(password, foundUser.password_hash)
-  if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
+  if (!ok) {
+    console.error('[signin] Invalid password for user:', email)
+    return res.status(401).json({ error: 'Invalid credentials' })
+  }
 
   const tokenPayload = {
     sub: String(foundUser.id),
@@ -109,7 +161,19 @@ authRouter.post('/signin', async (req, res) => {
 
   const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' })
   res.cookie(TOKEN_COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: false, maxAge: 7 * 24 * 3600 * 1000 })
-  res.json({ ok: true, user: { ...tokenPayload } })
+  console.log('[signin] Signed in user:', email, 'with role:', foundUser.role)
+  
+  // Return user data with isVerified flag (citizens may be unverified)
+  const responseUser = {
+    id: foundUser.id,
+    name: foundUser.name,
+    email: foundUser.email,
+    role: foundUser.role,
+    departmentId: foundUser.departmentId,
+    ...(foundUser.role === 'CITIZEN' ? { isVerified: Boolean((foundUser as any).isVerified) } : { isVerified: true })
+  }
+
+  res.json({ ok: true, user: responseUser })
 })
 
 authRouter.post('/signout', (_req, res) => {
@@ -124,69 +188,110 @@ authRouter.get('/me', async (req: Request, res: Response) => {
     if (!token) return res.status(401).json({ error: 'Not authenticated' })
     const payload = jwt.verify(token, JWT_SECRET) as { sub: string; role: Role; departmentId: number | null }
 
-    let sql: string
+    let userData: any = null
+
     if (payload.role === 'CITIZEN') {
-      sql = `SELECT citizen_id AS id,
-                     full_name AS name,
-                     email,
-                     is_verified,
-                     trust_score,
-                     verification_expires_at
-                FROM citizens
-               WHERE citizen_id = ?
-               LIMIT 1`
+      const { data: citizenData, error } = await supabaseAdmin
+        .from('citizens')
+        .select('citizen_id, full_name, email, is_verified, trust_score, verification_expires_at')
+        .eq('citizen_id', Number(payload.sub))
+        .single()
+
+      if (error || !citizenData) {
+        console.error('[auth/me] Failed to load citizen data:', error)
+        return res.status(401).json({ error: 'User not found' })
+      }
+      userData = {
+        id: citizenData.citizen_id,
+        name: citizenData.full_name,
+        email: citizenData.email,
+        is_verified: citizenData.is_verified,
+        trust_score: citizenData.trust_score,
+        verification_expires_at: citizenData.verification_expires_at
+      }
     } else if (payload.role === 'STAFF') {
-      sql = 'SELECT staff_id AS id, full_name AS name, email, department_id AS departmentId FROM department_staff WHERE staff_id = ? LIMIT 1'
+      const { data: staffData, error } = await supabaseAdmin
+        .from('department_staff')
+        .select('staff_id, full_name, email, department_id')
+        .eq('staff_id', Number(payload.sub))
+        .single()
+
+      if (error || !staffData) {
+        console.error('[auth/me] Failed to load staff data:', error)
+        return res.status(401).json({ error: 'User not found' })
+      }
+      userData = {
+        id: staffData.staff_id,
+        name: staffData.full_name,
+        email: staffData.email,
+        departmentId: staffData.department_id
+      }
     } else {
-      sql = 'SELECT admin_id AS id, full_name AS name, email FROM admins WHERE admin_id = ? LIMIT 1'
+      const { data: adminData, error } = await supabaseAdmin
+        .from('admins')
+        .select('admin_id, full_name, email')
+        .eq('admin_id', Number(payload.sub))
+        .single()
+
+      if (error || !adminData) {
+        console.error('[auth/me] Failed to load admin data:', error)
+        return res.status(401).json({ error: 'User not found' })
+      }
+      userData = {
+        id: adminData.admin_id,
+        name: adminData.full_name,
+        email: adminData.email
+      }
     }
 
-    const [rows] = await pool.query(sql, [payload.sub])
-    const users = rows as any[]
-    if (!users[0]) return res.status(401).json({ error: 'User not found' })
-    const u = users[0]
-
     if (payload.role === 'CITIZEN') {
-      const trustScore = Number(u.trust_score ?? 0)
+      const trustScore = Number(userData.trust_score ?? 0)
       const { trustLevel, dailyReportLimit } = getTrustMetadata(trustScore)
-      const [reportRows] = await pool.query(
-        'SELECT COUNT(*) AS total FROM reports WHERE citizen_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)',
-        [payload.sub]
-      )
-      const reportsToday = Number((reportRows as any[])[0]?.total ?? 0)
-      const [totalRows] = await pool.query(
-        'SELECT COUNT(*) AS total FROM reports WHERE citizen_id = ?',
-        [payload.sub]
-      )
-      const totalReports = Number((totalRows as any[])[0]?.total ?? 0)
+      
+      const { count: reportsToday } = await supabaseAdmin
+        .from('reports')
+        .select('*', { count: 'exact', head: true })
+        .eq('citizen_id', payload.sub)
+        .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+
+      const { count: totalReports } = await supabaseAdmin
+        .from('reports')
+        .select('*', { count: 'exact', head: true })
+        .eq('citizen_id', payload.sub)
+
+      // Normalize DB timestamp without timezone as UTC; append 'Z' if missing
+      const rawExp = userData.verification_expires_at as string | null
+      const verificationExpiresAtIso = rawExp
+        ? (/Z$|[+-]\d{2}:\d{2}$/.test(String(rawExp))
+            ? new Date(String(rawExp)).toISOString()
+            : new Date(String(rawExp) + 'Z').toISOString())
+        : null
 
       return res.json({
         user: {
-          id: u.id,
-          name: u.name,
-          email: u.email,
+          id: userData.id,
+          name: userData.name,
+          email: userData.email,
           role: payload.role,
           departmentId: null,
-          isVerified: Boolean(u.is_verified),
+          isVerified: Boolean(userData.is_verified),
           trustScore,
           trustLevel,
           dailyReportLimit,
-          reportsSubmittedToday: reportsToday,
-          totalReportsSubmitted: totalReports,
-          verificationExpiresAt: u.verification_expires_at
-            ? new Date(u.verification_expires_at).toISOString()
-            : null
+          reportsSubmittedToday: reportsToday ?? 0,
+          totalReportsSubmitted: totalReports ?? 0,
+          verificationExpiresAt: verificationExpiresAtIso
         }
       })
     }
 
     return res.json({
       user: {
-        id: u.id,
-        name: u.name,
-        email: u.email,
+        id: userData.id,
+        name: userData.name,
+        email: userData.email,
         role: payload.role,
-        departmentId: u.departmentId ? Number(u.departmentId) : payload.departmentId || null
+        departmentId: userData.departmentId ? Number(userData.departmentId) : payload.departmentId || null
       }
     })
   } catch (e) {
@@ -204,12 +309,14 @@ authRouter.post('/verification/request', requireAuth, async (req: Request, res: 
   const rawMethod = typeof req.body?.method === 'string' ? req.body.method.toLowerCase() : 'email'
   const method: VerificationMethod = rawMethod === 'phone' ? 'phone' : 'email'
 
-  const [rows] = await pool.query(
-    'SELECT email, contact_number, is_verified FROM citizens WHERE citizen_id = ? LIMIT 1',
-    [session.sub]
-  )
-  const citizen = (rows as any[])[0]
-  if (!citizen) {
+  const { data: citizen, error } = await supabaseAdmin
+    .from('citizens')
+    .select('email, contact_number, is_verified')
+    .eq('citizen_id', Number(session.sub))
+    .single()
+
+  if (error || !citizen) {
+    console.error('[verification/request] Failed to load citizen:', error)
     return res.status(404).json({ error: 'Citizen account not found' })
   }
 
@@ -272,11 +379,12 @@ authRouter.post('/verification/confirm', requireAuth, async (req: Request, res: 
     return res.status(404).json({ error: 'Citizen account not found.' })
   }
 
-  const [rows] = await pool.query(
-    'SELECT trust_score FROM citizens WHERE citizen_id = ? LIMIT 1',
-    [session.sub]
-  )
-  const citizen = (rows as any[])[0]
+  const { data: citizen } = await supabaseAdmin
+    .from('citizens')
+    .select('trust_score')
+    .eq('citizen_id', session.sub)
+    .single()
+
   const trustScore = Number(citizen?.trust_score ?? 0)
   const { trustLevel, dailyReportLimit } = getTrustMetadata(trustScore)
 

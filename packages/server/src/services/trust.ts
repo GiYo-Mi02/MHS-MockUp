@@ -1,5 +1,4 @@
-import type { PoolConnection } from 'mysql2/promise'
-import { pool } from '../db'
+import { supabaseAdmin } from '../supabase'
 
 export type TrustLevel = 'LOW' | 'MEDIUM' | 'HIGH'
 
@@ -58,7 +57,6 @@ export async function applyTrustTransition(params: {
   newStatus: string
   trustCreditApplied: boolean
   trustPenaltyApplied: boolean
-  connection?: PoolConnection | null
 }) {
   const {
     citizenId,
@@ -66,8 +64,7 @@ export async function applyTrustTransition(params: {
     previousStatus,
     newStatus,
     trustCreditApplied,
-    trustPenaltyApplied,
-    connection
+    trustPenaltyApplied
   } = params
 
   if (!citizenId) {
@@ -78,7 +75,6 @@ export async function applyTrustTransition(params: {
   const current = (newStatus || '').toLowerCase()
   let creditApplied = Boolean(trustCreditApplied)
   let penaltyApplied = Boolean(trustPenaltyApplied)
-  const executor = connection ?? pool
 
   const isNegative = current === NEGATIVE_TRUST_STATUS
   const wasNegative = previous === NEGATIVE_TRUST_STATUS
@@ -87,36 +83,106 @@ export async function applyTrustTransition(params: {
 
   if (isNegative) {
     if (creditApplied) {
-      await executor.query('UPDATE citizens SET trust_score = trust_score - 1 WHERE citizen_id = ?', [citizenId])
-      await executor.query('UPDATE reports SET trust_credit_applied = FALSE WHERE report_id = ?', [reportId])
+      const { data: citizen } = await supabaseAdmin
+        .from('citizens')
+        .select('trust_score')
+        .eq('citizen_id', citizenId)
+        .single()
+      
+      await supabaseAdmin
+        .from('citizens')
+        .update({ trust_score: (citizen?.trust_score || 0) - 1 })
+        .eq('citizen_id', citizenId)
+      
+      await supabaseAdmin
+        .from('reports')
+        .update({ trust_credit_applied: false })
+        .eq('report_id', reportId)
+      
       creditApplied = false
     }
     if (!penaltyApplied) {
-      await executor.query('UPDATE citizens SET trust_score = trust_score - 2 WHERE citizen_id = ?', [citizenId])
-      await executor.query('UPDATE reports SET trust_penalty_applied = TRUE WHERE report_id = ?', [reportId])
+      const { data: citizen } = await supabaseAdmin
+        .from('citizens')
+        .select('trust_score')
+        .eq('citizen_id', citizenId)
+        .single()
+      
+      await supabaseAdmin
+        .from('citizens')
+        .update({ trust_score: (citizen?.trust_score || 0) - 2 })
+        .eq('citizen_id', citizenId)
+      
+      await supabaseAdmin
+        .from('reports')
+        .update({ trust_penalty_applied: true })
+        .eq('report_id', reportId)
+      
       penaltyApplied = true
     }
     return { trustCreditApplied: creditApplied, trustPenaltyApplied: penaltyApplied }
   }
 
   if (penaltyApplied && wasNegative) {
-    await executor.query('UPDATE citizens SET trust_score = trust_score + 2 WHERE citizen_id = ?', [citizenId])
-    await executor.query('UPDATE reports SET trust_penalty_applied = FALSE WHERE report_id = ?', [reportId])
+    const { data: citizen } = await supabaseAdmin
+      .from('citizens')
+      .select('trust_score')
+      .eq('citizen_id', citizenId)
+      .single()
+    
+    await supabaseAdmin
+      .from('citizens')
+      .update({ trust_score: (citizen?.trust_score || 0) + 2 })
+      .eq('citizen_id', citizenId)
+    
+    await supabaseAdmin
+      .from('reports')
+      .update({ trust_penalty_applied: false })
+      .eq('report_id', reportId)
+    
     penaltyApplied = false
   }
 
   if (isPositive) {
     if (!creditApplied) {
-      await executor.query('UPDATE citizens SET trust_score = trust_score + 1 WHERE citizen_id = ?', [citizenId])
-      await executor.query('UPDATE reports SET trust_credit_applied = TRUE WHERE report_id = ?', [reportId])
+      const { data: citizen } = await supabaseAdmin
+        .from('citizens')
+        .select('trust_score')
+        .eq('citizen_id', citizenId)
+        .single()
+      
+      await supabaseAdmin
+        .from('citizens')
+        .update({ trust_score: (citizen?.trust_score || 0) + 1 })
+        .eq('citizen_id', citizenId)
+      
+      await supabaseAdmin
+        .from('reports')
+        .update({ trust_credit_applied: true })
+        .eq('report_id', reportId)
+      
       creditApplied = true
     }
     return { trustCreditApplied: creditApplied, trustPenaltyApplied: penaltyApplied }
   }
 
   if (creditApplied && wasPositive) {
-    await executor.query('UPDATE citizens SET trust_score = trust_score - 1 WHERE citizen_id = ?', [citizenId])
-    await executor.query('UPDATE reports SET trust_credit_applied = FALSE WHERE report_id = ?', [reportId])
+    const { data: citizen } = await supabaseAdmin
+      .from('citizens')
+      .select('trust_score')
+      .eq('citizen_id', citizenId)
+      .single()
+    
+    await supabaseAdmin
+      .from('citizens')
+      .update({ trust_score: (citizen?.trust_score || 0) - 1 })
+      .eq('citizen_id', citizenId)
+    
+    await supabaseAdmin
+      .from('reports')
+      .update({ trust_credit_applied: false })
+      .eq('report_id', reportId)
+    
     creditApplied = false
   }
 

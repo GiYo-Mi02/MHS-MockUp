@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
-import { pool } from '../db'
+import { supabaseAdmin } from '../supabase'
 import { sendEmail, isEmailConfigured } from './email'
 
 export type VerificationMethod = 'email' | 'phone' | 'manual'
@@ -20,17 +20,37 @@ export async function issueVerificationCode(options: {
   const method: VerificationMethod = options.method ?? 'email'
   const code = generateCode()
   const hash = await bcrypt.hash(code, 10)
-  const expiresAt = new Date(Date.now() + VERIFICATION_TTL_MINUTES * 60 * 1000)
+  
+  // Calculate expiration time - use server's current timestamp
+  const nowMs = Date.now()
+  const ttlMs = VERIFICATION_TTL_MINUTES * 60 * 1000
+  const expiresAtMs = nowMs + ttlMs
+  const expiresAtIso = new Date(expiresAtMs).toISOString()
 
-  await pool.query(
-    `UPDATE citizens
-        SET verification_code_hash = ?,
-            verification_expires_at = ?,
-            verification_method = ?,
-            is_verified = FALSE
-      WHERE citizen_id = ?`,
-    [hash, expiresAt, method, options.citizenId]
-  )
+  console.log('[verification] Issuing code for citizen', options.citizenId, {
+    code,
+    nowMs,
+    expiresAtMs,
+    ttlMinutes: VERIFICATION_TTL_MINUTES,
+    expiresAtIso
+  })
+
+  const { error: updateError } = await supabaseAdmin
+    .from('citizens')
+    .update({
+      verification_code_hash: hash,
+      verification_expires_at: expiresAtIso,
+      verification_method: method,
+      is_verified: false
+    })
+    .eq('citizen_id', options.citizenId)
+  
+  if (updateError) {
+    console.error('[verification] Failed to update verification code in database:', updateError)
+    throw new Error(`Failed to store verification code: ${updateError.message}`)
+  }
+  
+  console.log('[verification] Successfully stored verification code for citizen', options.citizenId)
 
   let deliverySkipped = false
   if (method === 'email' && options.destination) {
@@ -58,7 +78,7 @@ export async function issueVerificationCode(options: {
 
   return {
     code,
-    expiresAt,
+    expiresAt: new Date(expiresAtMs),
     deliverySkipped: deliverySkipped || !isEmailConfigured()
   }
 }
@@ -68,12 +88,13 @@ export type VerificationAttemptResult =
   | { success: false; reason: 'not_found' | 'already_verified' | 'expired' | 'invalid' }
 
 export async function verifyCitizenCode(options: { citizenId: number; code: string }): Promise<VerificationAttemptResult> {
-  const [rows] = await pool.query(
-    'SELECT is_verified, verification_code_hash, verification_expires_at, verification_method FROM citizens WHERE citizen_id = ? LIMIT 1',
-    [options.citizenId]
-  )
-  const citizen = (rows as any[])[0]
-  if (!citizen) {
+  const { data: citizen, error } = await supabaseAdmin
+    .from('citizens')
+    .select('is_verified, verification_code_hash, verification_expires_at, verification_method')
+    .eq('citizen_id', options.citizenId)
+    .single()
+
+  if (error || !citizen) {
     return { success: false, reason: 'not_found' }
   }
 
@@ -85,8 +106,30 @@ export async function verifyCitizenCode(options: { citizenId: number; code: stri
     return { success: false, reason: 'invalid' }
   }
 
-  if (citizen.verification_expires_at && new Date(citizen.verification_expires_at).getTime() < Date.now()) {
-    return { success: false, reason: 'expired' }
+  if (citizen.verification_expires_at) {
+    // Parse DB timestamp. Supabase may return a string without timezone (e.g., "YYYY-MM-DDTHH:mm:ss.SSS").
+    // In JS, such strings are treated as local time. Our DB stores UTC instants, so assume UTC if no TZ is present.
+    const raw = String(citizen.verification_expires_at)
+    const hasTz = /Z$|[+-]\d{2}:\d{2}$/.test(raw)
+    const normalized = hasTz ? raw : raw + 'Z'
+    const expiresAtMs = Date.parse(normalized)
+    const nowMs = Date.now()
+    const diffMs = expiresAtMs - nowMs
+    
+    console.log('[verification] Expiration check for citizen', options.citizenId, {
+      expiresAtFromDb: citizen.verification_expires_at,
+      normalized,
+      expiresAtMs,
+      nowMs,
+      diffMs,
+      diffSeconds: Math.round(diffMs / 1000),
+      isExpired: diffMs < 0
+    })
+    
+    if (diffMs < 0) {
+      console.log('[verification] Code expired for citizen', options.citizenId)
+      return { success: false, reason: 'expired' }
+    }
   }
 
   const matches = await bcrypt.compare(options.code, citizen.verification_code_hash)
@@ -94,15 +137,15 @@ export async function verifyCitizenCode(options: { citizenId: number; code: stri
     return { success: false, reason: 'invalid' }
   }
 
-  await pool.query(
-    `UPDATE citizens
-        SET is_verified = TRUE,
-            verified_at = NOW(),
-            verification_code_hash = NULL,
-            verification_expires_at = NULL
-      WHERE citizen_id = ?`,
-    [options.citizenId]
-  )
+  await supabaseAdmin
+    .from('citizens')
+    .update({
+      is_verified: true,
+      verified_at: new Date().toISOString(),
+      verification_code_hash: null,
+      verification_expires_at: null
+    })
+    .eq('citizen_id', options.citizenId)
 
   return {
     success: true,

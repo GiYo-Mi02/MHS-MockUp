@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { pool } from '../db'
+import { supabaseAdmin } from '../supabase'
 import { requireAuth } from '../auth'
 
 export const notificationsRouter = Router()
@@ -11,24 +11,39 @@ notificationsRouter.get('/', requireAuth, async (req: Request, res: Response) =>
   const userRole = user.role.toLowerCase()
 
   try {
-    const [rows] = await pool.query(
-      `SELECT n.notification_id AS id,
-              n.report_id AS reportId,
-              r.tracking_id AS trackingId,
-              r.title AS reportTitle,
-              r.status AS reportStatus,
-              n.message,
-              n.created_at AS createdAt,
-              n.read_at AS readAt
-       FROM notifications n
-       LEFT JOIN reports r ON r.report_id = n.report_id
-       WHERE n.recipient_type = ? AND n.recipient_id = ?
-       ORDER BY n.created_at DESC 
-       LIMIT 50`,
-      [userRole, userId]
-    )
+    const { data, error } = await supabaseAdmin
+      .from('notifications')
+      .select(`
+        notification_id,
+        report_id,
+        message,
+        created_at,
+        read_at,
+        reports!inner (
+          tracking_id,
+          title,
+          status
+        )
+      `)
+      .eq('recipient_type', userRole)
+      .eq('recipient_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (error) throw error
+
+    const formatted = data.map(n => ({
+      id: n.notification_id,
+      reportId: n.report_id,
+      trackingId: (n as any).reports?.tracking_id,
+      reportTitle: (n as any).reports?.title,
+      reportStatus: (n as any).reports?.status,
+      message: n.message,
+      createdAt: n.created_at,
+      readAt: n.read_at
+    }))
     
-    res.json(rows)
+    res.json(formatted)
   } catch (error) {
     console.error('Failed to fetch notifications:', error)
     res.status(500).json({ error: 'Failed to load notifications' })
@@ -43,12 +58,15 @@ notificationsRouter.patch('/:id/read', requireAuth, async (req: Request, res: Re
   const userRole = user.role.toLowerCase()
 
   try {
-    await pool.query(
-      `UPDATE notifications 
-       SET read_at = NOW() 
-       WHERE notification_id = ? AND recipient_type = ? AND recipient_id = ? AND read_at IS NULL`,
-      [id, userRole, userId]
-    )
+    const { error } = await supabaseAdmin
+      .from('notifications')
+      .update({ read_at: new Date().toISOString() })
+      .eq('notification_id', id)
+      .eq('recipient_type', userRole)
+      .eq('recipient_id', userId)
+      .is('read_at', null)
+
+    if (error) throw error
     
     res.json({ ok: true })
   } catch (error) {
@@ -64,12 +82,14 @@ notificationsRouter.patch('/read-all', requireAuth, async (req: Request, res: Re
   const userRole = user.role.toLowerCase()
 
   try {
-    await pool.query(
-      `UPDATE notifications 
-       SET read_at = NOW() 
-       WHERE recipient_type = ? AND recipient_id = ? AND read_at IS NULL`,
-      [userRole, userId]
-    )
+    const { error } = await supabaseAdmin
+      .from('notifications')
+      .update({ read_at: new Date().toISOString() })
+      .eq('recipient_type', userRole)
+      .eq('recipient_id', userId)
+      .is('read_at', null)
+
+    if (error) throw error
     
     res.json({ ok: true })
   } catch (error) {
@@ -85,15 +105,16 @@ notificationsRouter.get('/unread-count', requireAuth, async (req: Request, res: 
   const userRole = user.role.toLowerCase()
 
   try {
-    const [rows] = await pool.query(
-      `SELECT COUNT(*) as count
-       FROM notifications 
-       WHERE recipient_type = ? AND recipient_id = ? AND read_at IS NULL`,
-      [userRole, userId]
-    )
+    const { count, error } = await supabaseAdmin
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('recipient_type', userRole)
+      .eq('recipient_id', userId)
+      .is('read_at', null)
+
+    if (error) throw error
     
-    const count = (rows as any[])[0]?.count || 0
-    res.json({ count: Number(count) })
+    res.json({ count: count || 0 })
   } catch (error) {
     console.error('Failed to get unread count:', error)
     res.json({ count: 0 })

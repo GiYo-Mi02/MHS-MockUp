@@ -22,15 +22,13 @@ export const TEST_USERS = {
   },
 };
 
-// Realistic department categories
+// Realistic department categories (must match database department codes)
 export const CATEGORIES = [
-  "WASTE_MGMT",
-  "TRAFFIC",
-  "SAFETY",
-  "UTILITIES",
-  "HEALTH",
-  "EDUCATION",
-  "ENVIRONMENT",
+  "GARBAGE", // Sanitation department
+  "TRAFFIC", // Traffic Management
+  "SAFETY", // Public Safety
+  "ROADS", // Infrastructure
+  "OTHERS", // General Services Desk
 ];
 
 // Urgency levels
@@ -42,14 +40,14 @@ export const SAMPLE_REPORTS = [
     title: "Broken streetlight on Ayala Avenue",
     description:
       "The streetlight near the intersection has been out for 3 days, making it dangerous at night.",
-    category: "UTILITIES",
+    category: "ROADS",
     urgency: "High",
   },
   {
     title: "Uncollected garbage on Buendia Street",
     description:
       "Garbage has been piling up for 2 days. It's attracting pests and creating health hazards.",
-    category: "WASTE_MGMT",
+    category: "GARBAGE",
     urgency: "Regular",
   },
   {
@@ -70,21 +68,21 @@ export const SAMPLE_REPORTS = [
     title: "Pothole causing accidents",
     description:
       "Large pothole on Jupiter Street has caused several motorcycle accidents.",
-    category: "UTILITIES",
+    category: "ROADS",
     urgency: "High",
   },
   {
     title: "Street flooding during rain",
     description:
       "Drainage system clogged, causing street to flood even with light rain.",
-    category: "UTILITIES",
+    category: "ROADS",
     urgency: "High",
   },
   {
     title: "Noise pollution from construction",
     description:
       "Construction site operating beyond allowed hours, disturbing residents.",
-    category: "ENVIRONMENT",
+    category: "OTHERS",
     urgency: "Regular",
   },
   {

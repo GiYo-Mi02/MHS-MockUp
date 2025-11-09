@@ -1,4 +1,4 @@
-import { pool } from '../db'
+import { supabaseAdmin } from '../supabase'
 import { isEmailConfigured, sendEmail } from './email'
 
 function formatDateTime(value: Date | string): string {
@@ -178,43 +178,54 @@ export async function sendReportSubmissionReceipt(reportId: number): Promise<voi
     return
   }
 
-  const [reportRows] = await pool.query(
-    `SELECT r.report_id as id,
-            r.tracking_id as trackingId,
-            r.title,
-            r.description,
-            r.category,
-            r.status,
-            r.location_address as locationAddress,
-            r.location_lat as locationLat,
-            r.location_lng as locationLng,
-            r.created_at as createdAt,
-            r.expected_resolution_hours as expectedResolutionHours,
-            r.is_anonymous as isAnonymous,
-            c.email as citizenEmail,
-            c.full_name as citizenName
-     FROM reports r
-     LEFT JOIN citizens c ON r.citizen_id = c.citizen_id
-     WHERE r.report_id = ?
-     LIMIT 1`,
-    [reportId]
-  )
+  const { data: report, error } = await supabaseAdmin
+    .from('reports')
+    .select(`
+      report_id,
+      tracking_id,
+      title,
+      description,
+      category,
+      status,
+      location_address,
+      location_lat,
+      location_lng,
+      created_at,
+      expected_resolution_hours,
+      is_anonymous,
+      citizens:citizen_id (
+        email,
+        full_name
+      )
+    `)
+    .eq('report_id', reportId)
+    .single()
 
-  const report = (reportRows as any[])[0]
-  if (!report || !report.citizenEmail || report.isAnonymous) {
+  if (error || !report) {
+    console.error('Error fetching report for email:', error)
     return
   }
 
-  const greetingName = report.citizenName || 'Valued Citizen'
-  const submittedAt = formatDateTime(report.createdAt)
+  const citizen = Array.isArray(report.citizens) ? report.citizens[0] : report.citizens
+  
+  if (!citizen?.email || report.is_anonymous) {
+    return
+  }
+
+  const greetingName = citizen.full_name || 'Valued Citizen'
+  const submittedAt = formatDateTime(report.created_at)
   const statusBadgeColor = report.status === 'Resolved' ? '#10b981' : report.status === 'In Progress' ? '#f59e0b' : '#6366f1'
-  const expectedTimelineLabel = report.expectedResolutionHours
-    ? `Estimated resolution: within ${report.expectedResolutionHours} hour(s)`
+  const expectedTimelineLabel = report.expected_resolution_hours
+    ? `Estimated resolution: within ${report.expected_resolution_hours} hour(s)`
     : null
 
-  const locationSections = buildLocationSections(report)
+  const locationSections = buildLocationSections({
+    locationAddress: report.location_address,
+    locationLat: report.location_lat,
+    locationLng: report.location_lng
+  })
 
-  const subject = `Report received - ${report.trackingId}`
+  const subject = `Report received - ${report.tracking_id}`
 
   const summaryCard = `
     <div style="margin:24px 0 0;padding:24px;border-radius:22px;background:#ffffff;border:1px solid rgba(226, 232, 240, 0.9);box-shadow:0 16px 32px rgba(15, 23, 42, 0.08);">
@@ -223,7 +234,7 @@ export async function sendReportSubmissionReceipt(reportId: number): Promise<voi
       <div style="margin-top:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:18px;">
         <div style="padding:16px;border-radius:16px;background:rgba(226, 232, 240, 0.38);">
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.24em;color:#475569;font-weight:700;">Tracking ID</div>
-          <div style="margin-top:10px;font-size:20px;font-weight:700;color:#0f172a;">${report.trackingId}</div>
+          <div style="margin-top:10px;font-size:20px;font-weight:700;color:#0f172a;">${report.tracking_id}</div>
           <div style="margin-top:6px;font-size:12px;color:#64748b;">Submitted ${submittedAt}</div>
         </div>
         <div style="padding:16px;border-radius:16px;background:rgba(219, 234, 254, 0.55);">
@@ -273,21 +284,21 @@ export async function sendReportSubmissionReceipt(reportId: number): Promise<voi
   const textBodyLines = [
     `Hello ${greetingName},`,
     '',
-  'Report received successfully',
-  `Title: ${report.title} (${report.trackingId})`,
+    'Report received successfully',
+    `Title: ${report.title} (${report.tracking_id})`,
     '',
     `Submitted: ${submittedAt}`,
     `Status: ${report.status}`,
     '',
-  'Summary:',
-  `Category: ${report.category}`,
-  `Description: ${report.description}`,
+    'Summary:',
+    `Category: ${report.category}`,
+    `Description: ${report.description}`,
     ...locationSections.textLines,
     '',
     'Next steps:',
-  '- We assign the report to the appropriate department.',
-  '- You will receive email updates when the status changes.',
-  '- Keep the tracking ID handy to monitor progress anytime.',
+    '- We assign the report to the appropriate department.',
+    '- You will receive email updates when the status changes.',
+    '- Keep the tracking ID handy to monitor progress anytime.',
     '',
     'Need help? Call Makati Action Center at 168.',
     '',
@@ -296,7 +307,7 @@ export async function sendReportSubmissionReceipt(reportId: number): Promise<voi
   ]
 
   await sendEmail({
-    to: report.citizenEmail,
+    to: citizen.email,
     subject,
     html,
     text: textBodyLines.join('\n')
@@ -308,41 +319,59 @@ export async function sendReportUpdateNotification({ reportId, message, newStatu
     return
   }
 
-  const [reportRows] = await pool.query(
-    `SELECT r.report_id as id,
-            r.tracking_id as trackingId,
-            r.title,
-            r.description,
-            r.category,
-            r.status,
-            r.location_address as locationAddress,
-            r.location_lat as locationLat,
-            r.location_lng as locationLng,
-            r.is_anonymous as isAnonymous,
-            c.email as citizenEmail,
-            c.full_name as citizenName
-     FROM reports r
-     LEFT JOIN citizens c ON r.citizen_id = c.citizen_id
-     WHERE r.report_id = ?
-     LIMIT 1`,
-    [reportId]
-  )
-  const report = (reportRows as any[])[0]
-  if (!report || !report.citizenEmail || report.isAnonymous) {
+  const { data: report, error } = await supabaseAdmin
+    .from('reports')
+    .select(`
+      report_id,
+      tracking_id,
+      title,
+      description,
+      category,
+      status,
+      location_address,
+      location_lat,
+      location_lng,
+      is_anonymous,
+      citizens:citizen_id (
+        email,
+        full_name
+      )
+    `)
+    .eq('report_id', reportId)
+    .single()
+
+  if (error || !report) {
+    console.error('Error fetching report for update notification:', error)
     return
   }
 
-  const [logRows] = await pool.query(
-    `SELECT created_at, action, new_status as newStatus, remarks
-     FROM report_status_logs
-     WHERE report_id = ?
-     ORDER BY created_at ASC`,
-    [reportId]
-  )
+  const citizen = Array.isArray(report.citizens) ? report.citizens[0] : report.citizens
+  
+  if (!citizen?.email || report.is_anonymous) {
+    return
+  }
 
-  const logs = (logRows as any[]).slice(-15) // limit email size to most recent 15 entries
+  const { data: logRows, error: logError } = await supabaseAdmin
+    .from('report_status_logs')
+    .select('created_at, action, new_status, remarks')
+    .eq('report_id', reportId)
+    .order('created_at', { ascending: true })
 
-  const greetingName = report.citizenName || 'Valued Citizen'
+  if (logError) {
+    console.error('Error fetching status logs:', logError)
+  }
+
+  const logs = (logRows || []).slice(-15) // limit email size to most recent 15 entries
+
+  // Format logs to match expected interface (new_status -> newStatus)
+  const formattedLogs = logs.map(log => ({
+    created_at: log.created_at,
+    action: log.action,
+    newStatus: log.new_status,
+    remarks: log.remarks
+  }))
+
+  const greetingName = citizen.full_name || 'Valued Citizen'
   const actorLine = actorName
     ? `
       <div style="margin:18px 0;padding:18px;border-radius:18px;background:rgba(219, 234, 254, 0.65);border:1px solid rgba(37, 99, 235, 0.22);">
@@ -363,15 +392,19 @@ export async function sendReportUpdateNotification({ reportId, message, newStatu
   const currentStatus = newStatus && newStatus.trim().length > 0 ? newStatus : report.status
   const statusBadgeColor = currentStatus === 'Resolved' ? '#10b981' : currentStatus === 'In Progress' ? '#f59e0b' : '#6b7280'
   const statusBadge = `<span style="display:inline-flex;align-items:center;gap:6px;padding:6px 16px;border-radius:999px;background:${statusBadgeColor};color:#ffffff;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">${currentStatus}</span>`
-  const locationSections = buildLocationSections(report)
+  const locationSections = buildLocationSections({
+    locationAddress: report.location_address,
+    locationLat: report.location_lat,
+    locationLng: report.location_lng
+  })
 
-  const subject = `Report update - ${report.trackingId}`
+  const subject = `Report update - ${report.tracking_id}`
 
   const summarySection = `
     <div style="margin:6px 0 24px;padding:24px;border-radius:22px;background:#ffffff;border:1px solid rgba(226,232,240,0.9);box-shadow:0 18px 34px rgba(15, 23, 42, 0.1);display:flex;flex-wrap:wrap;gap:24px;justify-content:space-between;align-items:flex-start;">
       <div style="min-width:220px;">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.22em;color:#64748b;font-weight:600;">Tracking ID</div>
-        <div style="margin-top:10px;font-size:22px;font-weight:700;color:#0f172a;">${report.trackingId}</div>
+        <div style="margin-top:10px;font-size:22px;font-weight:700;color:#0f172a;">${report.tracking_id}</div>
         <div style="margin-top:6px;font-size:14px;color:#475569;line-height:1.5;">${report.title}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px;align-items:flex-end;">
@@ -399,9 +432,9 @@ export async function sendReportUpdateNotification({ reportId, message, newStatu
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.22em;color:#475569;font-weight:700;">Description</div>
           <div style="margin-top:8px;font-size:13px;color:#475569;line-height:1.6;">${report.description}</div>
         </div>
-        ${report.locationAddress ? `<div style="padding:16px;border-radius:16px;background:rgba(241,245,249,0.9);">
+        ${report.location_address ? `<div style="padding:16px;border-radius:16px;background:rgba(241,245,249,0.9);">
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.22em;color:#475569;font-weight:700;">Address</div>
-          <div style="margin-top:8px;font-size:13px;color:#475569;line-height:1.6;">${report.locationAddress}</div>
+          <div style="margin-top:8px;font-size:13px;color:#475569;line-height:1.6;">${report.location_address}</div>
         </div>` : ''}
       </div>
     </div>
@@ -410,9 +443,9 @@ export async function sendReportUpdateNotification({ reportId, message, newStatu
   const timelineSection = `
     <div style="margin:0;padding:24px;border-radius:22px;background:#ffffff;border:1px solid rgba(226,232,240,0.9);box-shadow:0 16px 32px rgba(15, 23, 42, 0.08);">
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.22em;color:#3730a3;font-weight:700;">Progress timeline</div>
-      <div style="margin-top:6px;font-size:15px;color:#0f172a;font-weight:600;">A clear record of every action we’ve taken</div>
+      <div style="margin-top:6px;font-size:15px;color:#0f172a;font-weight:600;">A clear record of every action we've taken</div>
       <div style="margin-top:18px;">
-      ${buildHistoryHtml(logs)}
+      ${buildHistoryHtml(formattedLogs)}
       </div>
     </div>
   `
@@ -430,7 +463,7 @@ export async function sendReportUpdateNotification({ reportId, message, newStatu
 
   const html = renderEmailLayout({
     title: 'You have a fresh update',
-    subtitle: `Tracking ${report.trackingId} · ${currentStatus}`,
+    subtitle: `Tracking ${report.tracking_id} · ${currentStatus}`,
     body,
     accentFrom: '#312e81',
     accentTo: '#2563eb'
@@ -439,7 +472,7 @@ export async function sendReportUpdateNotification({ reportId, message, newStatu
   const textBodyLines = [
     `Hello ${greetingName},`,
     '',
-    `Update: ${report.title} (${report.trackingId})`,
+    `Update: ${report.title} (${report.tracking_id})`,
     `Status: ${currentStatus}`,
     actorName ? `Updated by: ${actorName}` : '',
     '',
@@ -451,16 +484,16 @@ export async function sendReportUpdateNotification({ reportId, message, newStatu
     ...locationSections.textLines,
     '',
     'Timeline:',
-    buildHistoryText(logs),
+    buildHistoryText(formattedLogs),
     '',
     'Questions? Contact Makati Action Center at 168',
-    `Track your report anytime with ID: ${report.trackingId}`,
+    `Track your report anytime with ID: ${report.tracking_id}`,
     '',
     'Makati City Government'
   ].filter(Boolean)
 
   await sendEmail({
-    to: report.citizenEmail,
+    to: citizen.email,
     subject,
     html,
     text: textBodyLines.join('\n')

@@ -7,22 +7,33 @@ echo   MakatiReport K6 Load Testing Suite
 echo ============================================
 echo.
 
-REM Check if K6 is installed
+REM Check if K6 is installed - try PATH first, then common install locations
+set K6_CMD=k6
 where k6 >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: K6 is not installed!
-    echo.
-    echo Please install K6 first:
-    echo   Option 1: choco install k6
-    echo   Option 2: winget install k6
-    echo   Option 3: Download from https://dl.k6.io/msi/k6-latest-amd64.msi
-    echo.
-    pause
-    exit /b 1
+    REM Try common installation paths
+    if exist "C:\Program Files\k6\k6.exe" (
+        set K6_CMD="C:\Program Files\k6\k6.exe"
+        echo Found K6 at: C:\Program Files\k6\k6.exe
+    ) else if exist "%LOCALAPPDATA%\Microsoft\WinGet\Packages\k6.k6_Microsoft.Winget.Source*\k6.exe" (
+        for /d %%i in ("%LOCALAPPDATA%\Microsoft\WinGet\Packages\k6.k6_Microsoft.Winget.Source*") do set K6_CMD="%%i\k6.exe"
+        echo Found K6 via WinGet installation
+    ) else (
+        echo ERROR: K6 is not installed or not found!
+        echo.
+        echo Please install K6 first:
+        echo   Option 1: choco install k6
+        echo   Option 2: winget install k6
+        echo   Option 3: Download from https://dl.k6.io/msi/k6-latest-amd64.msi
+        echo.
+        echo Or add K6 to your PATH if already installed.
+        pause
+        exit /b 1
+    )
 )
 
 echo K6 is installed: 
-k6 version
+%K6_CMD% version
 echo.
 
 echo Select a test to run:
@@ -30,23 +41,25 @@ echo.
 echo   1. Smoke Test (1 min, 1-5 users)
 echo   2. Load Test (5 min, up to 100 users)
 echo   3. Stress Test (10 min, up to 500 users)
-echo   4. Spike Test (sudden surge simulation)
-echo   5. Soak Test (30 min endurance)
-echo   6. API Comprehensive Test (3 min, all endpoints)
-echo   7. Run All Tests (Sequential)
-echo   8. Exit
+echo   4. Gradual Stress Test (20 min, 10→200 users gradually)
+echo   5. Spike Test (sudden surge simulation)
+echo   6. Soak Test (30 min endurance)
+echo   7. API Comprehensive Test (3 min, all endpoints)
+echo   8. Run All Tests (Sequential)
+echo   9. Exit
 echo.
 
-set /p choice="Enter your choice (1-8): "
+set /p choice="Enter your choice (1-9): "
 
 if "%choice%"=="1" goto smoke
 if "%choice%"=="2" goto load
 if "%choice%"=="3" goto stress
-if "%choice%"=="4" goto spike
-if "%choice%"=="5" goto soak
-if "%choice%"=="6" goto api
-if "%choice%"=="7" goto all
-if "%choice%"=="8" goto end
+if "%choice%"=="4" goto gradual
+if "%choice%"=="5" goto spike
+if "%choice%"=="6" goto soak
+if "%choice%"=="7" goto api
+if "%choice%"=="8" goto all
+if "%choice%"=="9" goto end
 
 echo Invalid choice!
 pause
@@ -57,7 +70,7 @@ echo.
 echo Running Smoke Test...
 echo This will verify basic functionality with minimal load.
 echo.
-k6 run k6\smoke-test.js
+%K6_CMD% run smoke-test.js
 goto result
 
 :load
@@ -66,7 +79,7 @@ echo Running Load Test...
 echo This simulates normal daily usage with up to 100 concurrent users.
 echo Duration: 5 minutes
 echo.
-k6 run k6\load-test.js
+%K6_CMD% run load-test.js
 goto result
 
 :stress
@@ -81,7 +94,17 @@ echo Running Stress Test...
 echo This will test up to 500 concurrent users.
 echo Duration: 10 minutes
 echo.
-k6 run k6\stress-test.js
+%K6_CMD% run stress-test.js
+goto result
+
+:gradual
+echo.
+echo Running Gradual Stress Test...
+echo This gradually increases load to find optimal capacity.
+echo Will ramp from 10 to 200 concurrent users.
+echo Duration: 20 minutes
+echo.
+%K6_CMD% run gradual-stress-test.js
 goto result
 
 :spike
@@ -90,7 +113,7 @@ echo Running Spike Test...
 echo This simulates sudden traffic surges.
 echo Duration: 4 minutes
 echo.
-k6 run k6\spike-test.js
+%K6_CMD% run spike-test.js
 goto result
 
 :soak
@@ -102,7 +125,7 @@ set /p duration="Enter duration (default: 30m, press Enter to use default): "
 if "%duration%"=="" set duration=30m
 echo Running soak test for %duration%...
 echo.
-k6 run -e DURATION=%duration% k6\soak-test.js
+%K6_CMD% run -e DURATION=%duration% soak-test.js
 goto result
 
 :api
@@ -111,7 +134,7 @@ echo Running API Comprehensive Test...
 echo This tests all major endpoints with realistic flows.
 echo Duration: 3 minutes
 echo.
-k6 run k6\api-test.js
+%K6_CMD% run api-test.js
 goto result
 
 :all
@@ -124,27 +147,27 @@ if /i not "%confirm%"=="Y" goto end
 
 echo.
 echo [1/6] Running Smoke Test...
-k6 run k6\smoke-test.js
+%K6_CMD% run smoke-test.js
 
 echo.
 echo [2/6] Running API Test...
-k6 run k6\api-test.js
+%K6_CMD% run api-test.js
 
 echo.
 echo [3/6] Running Load Test...
-k6 run k6\load-test.js
+%K6_CMD% run load-test.js
 
 echo.
 echo [4/6] Running Spike Test...
-k6 run k6\spike-test.js
+%K6_CMD% run spike-test.js
 
 echo.
 echo [5/6] Running Stress Test...
-k6 run k6\stress-test.js
+%K6_CMD% run stress-test.js
 
 echo.
 echo [6/6] Running Soak Test (10 min)...
-k6 run -e DURATION=10m k6\soak-test.js
+%K6_CMD% run -e DURATION=10m soak-test.js
 
 echo.
 echo ============================================

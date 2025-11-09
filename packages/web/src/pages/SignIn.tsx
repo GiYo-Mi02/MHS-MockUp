@@ -28,8 +28,15 @@ export function SignIn() {
       showSuccess('Welcome back!', 'You have been signed in successfully.')
       navigate(nextPath)
     } catch (e: any) {
-      const errorMessage = e?.response?.data?.error || 'Sign in failed'
-      showError('Sign in failed', errorMessage)
+      const status = e?.response?.status
+      const backendMsg = e?.response?.data?.error
+      if (status === 401) {
+        showError('Invalid credentials', 'Email or password is incorrect.')
+      } else if (status === 429) {
+        showError('Too many attempts', 'Please wait a moment before trying again.')
+      } else {
+        showError('Sign in failed', backendMsg || 'Unexpected error signing in.')
+      }
     }
   }
 

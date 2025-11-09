@@ -1,4 +1,4 @@
-import { pool } from '../db'
+import { supabaseAdmin } from '../supabase'
 import type { TrustLevel } from './trust'
 
 export type CreateNotificationData = {
@@ -10,11 +10,14 @@ export type CreateNotificationData = {
 
 export async function createNotification(data: CreateNotificationData): Promise<void> {
   try {
-    await pool.query(
-      `INSERT INTO notifications (report_id, recipient_type, recipient_id, message)
-       VALUES (?, ?, ?, ?)`,
-      [data.reportId, data.recipientType, data.recipientId, data.message]
-    )
+    await supabaseAdmin
+      .from('notifications')
+      .insert({
+        report_id: data.reportId,
+        recipient_type: data.recipientType,
+        recipient_id: data.recipientId,
+        message: data.message
+      })
   } catch (error) {
     console.error('Failed to create notification:', error)
   }
@@ -51,12 +54,13 @@ export async function notifyDepartmentOfNewReport(
 ): Promise<void> {
   try {
     // Get all staff in the department
-    const [staffRows] = await pool.query(
-      'SELECT staff_id FROM department_staff WHERE department_id = ?',
-      [departmentId]
-    )
+    const { data: staff, error } = await supabaseAdmin
+      .from('department_staff')
+      .select('staff_id')
+      .eq('department_id', departmentId)
+
+    if (error) throw error
     
-    const staff = staffRows as Array<{ staff_id: number }>
     const submitterName = citizenName || 'Anonymous citizen'
     const tracking = trackingId ? ` (ID ${trackingId})` : ''
     const manualFlag = options?.requiresManualReview ? ' ⚠️ Manual review required' : ''
@@ -64,7 +68,7 @@ export async function notifyDepartmentOfNewReport(
     const message = `📋 New report assigned${tracking}: "${reportTitle}" submitted by ${submitterName}${manualFlag}${trustNote}`
     
     // Create notifications for all department staff
-    for (const member of staff) {
+    for (const member of staff || []) {
       await createStaffNotification(reportId, member.staff_id, message)
     }
   } catch (error) {

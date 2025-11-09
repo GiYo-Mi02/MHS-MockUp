@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes, Navigate, useLocation } from 'react-route
 import './styles.css'
 import 'leaflet/dist/leaflet.css'
 import { Header } from './components/Header'
+import { ProtectedRoute } from './components/ProtectedRoute'
 import { AuthProvider } from './lib/auth'
 import { ThemeProvider } from './lib/theme'
 import { ToastProvider } from './lib/toast'
@@ -26,13 +27,13 @@ function AnimatedRoutes() {
       <div key={routeKey} className="page-slide-up">
         <Routes location={location}>
           <Route path="/" element={<Home />} />
-          <Route path="/report" element={<Report />} />
-          <Route path="/my-reports" element={<MyReports />} />
+          <Route path="/report" element={<ProtectedRoute><Report /></ProtectedRoute>} />
+          <Route path="/my-reports" element={<ProtectedRoute><MyReports /></ProtectedRoute>} />
           <Route path="/track/:trackingId?" element={<Track />} />
           <Route path="/signin" element={<SignIn />} />
           <Route path="/signup" element={<SignUp />} />
           <Route path="/verify" element={<VerifyAccount />} />
-          <Route path="/dashboard/*" element={<Dashboard />} />
+          <Route path="/dashboard/*" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

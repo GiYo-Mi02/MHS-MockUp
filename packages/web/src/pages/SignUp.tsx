@@ -36,12 +36,28 @@ export function SignUp() {
       }
       await api.post('/auth/signup', payload)
 
-      // Create a session so the user can access /verify and request/confirm codes
-      await signin(data.email, data.password)
-
-      const encodedNext = encodeURIComponent(resolveNextPath())
-      showSuccess('Account created!', 'Enter the 6-digit code we sent to verify your account.')
-      navigate(`/verify?next=${encodedNext}`)
+      // Attempt to create a session (citizen may be unverified – that's OK)
+      try {
+        const signedIn = await signin(data.email, data.password)
+        if (signedIn?.role === 'CITIZEN' && !signedIn.isVerified) {
+          const encodedNext = encodeURIComponent(resolveNextPath())
+          showSuccess('Account created!', 'Enter the 6-digit code we sent to verify your account.')
+          navigate(`/verify?next=${encodedNext}`)
+          return
+        }
+        // If somehow already verified (edge case) go straight to next
+        if (signedIn?.isVerified) {
+          showSuccess('Account ready', 'Welcome back!')
+          navigate(resolveNextPath())
+          return
+        }
+      } catch (err: any) {
+        // Signin failing should not block showing verify page (rare edge case)
+        const encodedNext = encodeURIComponent(resolveNextPath())
+        navigate(`/verify?next=${encodedNext}`)
+        showSuccess('Account created!', 'Enter the 6-digit code we sent to verify your account.')
+        return
+      }
     } catch (e: any) {
       const errorMessage = e?.response?.data?.error || 'Sign up failed'
       showError('Sign up failed', errorMessage)

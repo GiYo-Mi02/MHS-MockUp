@@ -21,7 +21,7 @@ export function VerifyAccount() {
   const [verificationCode, setVerificationCode] = useState('')
   const [requesting, setRequesting] = useState(false)
   const [confirming, setConfirming] = useState(false)
-  const [devVerificationCode, setDevVerificationCode] = useState<string | null>(null)
+  const [nowMs, setNowMs] = useState<number>(() => Date.now())
 
   useEffect(() => {
     if (loading) return
@@ -48,16 +48,25 @@ export function VerifyAccount() {
     return Number.isNaN(date.getTime()) ? null : date
   }, [user?.verificationExpiresAt])
 
+  // Tick every second so we can show a live countdown until expiration
+  useEffect(() => {
+    if (!verificationExpiresAt) return
+    const id = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [verificationExpiresAt])
+
+  const remainingMs = useMemo(() => {
+    if (!verificationExpiresAt) return null
+    return verificationExpiresAt.getTime() - nowMs
+  }, [verificationExpiresAt, nowMs])
+
+  const isExpired = typeof remainingMs === 'number' ? remainingMs <= 0 : false
+
   const handleRequestVerification = async () => {
     if (!user || user.role !== 'CITIZEN') return
     setRequesting(true)
     try {
       const { data } = await api.post('/auth/verification/request', { method: 'email' })
-      if (typeof data?.code === 'string') {
-        setDevVerificationCode(data.code)
-      } else {
-        setDevVerificationCode(null)
-      }
       void refresh()
       const deliverySkipped = Boolean(data?.deliverySkipped)
       showSuccess(
@@ -86,7 +95,6 @@ export function VerifyAccount() {
       await api.post('/auth/verification/confirm', { code: trimmed })
       showSuccess('Account verified', 'Thanks! You now have full access to Makati Cares.')
       setVerificationCode('')
-      setDevVerificationCode(null)
       const refreshed = await refresh()
       if (refreshed?.isVerified) {
         navigate(nextPath, { replace: true })
@@ -135,14 +143,9 @@ export function VerifyAccount() {
             <div className="space-y-2">
               <p className="font-semibold">Didn't receive a code?</p>
               <p>Click resend and we’ll generate a fresh code. Codes expire after 15 minutes for your security.</p>
-              {verificationExpiresAt && (
+              {verificationExpiresAt && !isExpired && (
                 <p className="text-xs text-neutral-500 dark:text-white/50">
-                  Current code expires {verificationExpiresAt.toLocaleString()}.
-                </p>
-              )}
-              {devVerificationCode && (
-                <p className="text-xs font-mono text-amber-700 dark:text-amber-200">
-                  Dev code: {devVerificationCode}
+                  A fresh code was sent. It expires soon, so enter it right away.
                 </p>
               )}
             </div>
@@ -169,7 +172,7 @@ export function VerifyAccount() {
                   type="button"
                   className="btn-primary whitespace-nowrap px-4 py-2 disabled:opacity-60"
                   onClick={handleConfirmVerification}
-                  disabled={confirming}
+                  disabled={confirming || isExpired}
                 >
                   {confirming ? 'Verifying…' : 'Confirm'}
                 </button>

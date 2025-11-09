@@ -1,8 +1,7 @@
 import { Router, type Request, type Response } from 'express'
 import type { Express } from 'express'
 import multer from 'multer'
-import { ResultSetHeader } from 'mysql2'
-import { pool } from '../db'
+import { supabaseAdmin } from '../supabase'
 import { requireAuth, requireRole } from '../auth'
 import { sendReportSubmissionReceipt, sendReportUpdateNotification } from '../services/report-email'
 import { notifyDepartmentOfNewReport, notifyCitizenOfStatusChange, notifyCitizenOfResponse } from '../services/notifications'
@@ -98,16 +97,22 @@ reportsRouter.post('/', upload.array('evidence', 5), async (req: Request, res: R
     }
   }
 
-  const [deptRows] = await pool.query('SELECT department_id FROM departments WHERE code = ? LIMIT 1', [category])
-  const department = (deptRows as any[])[0]
-  if (!department) return res.status(400).json({ error: 'Invalid category/department' })
+  const { data: department, error: deptError } = await supabaseAdmin
+    .from('departments')
+    .select('department_id')
+    .eq('code', category)
+    .single()
 
-  const [slaRows] = await pool.query(
-    'SELECT expected_resolution_hours FROM sla_policies WHERE category = ? AND urgency_level = ? LIMIT 1',
-    [category, urgency]
-  )
-  const sla = (slaRows as any[])[0]
-  const expectedResolutionHours = sla ? sla.expected_resolution_hours : null
+  if (deptError || !department) return res.status(400).json({ error: 'Invalid category/department' })
+
+  const { data: sla } = await supabaseAdmin
+    .from('sla_policies')
+    .select('expected_resolution_hours')
+    .eq('category', category)
+    .eq('urgency_level', urgency)
+    .single()
+
+  const expectedResolutionHours = sla?.expected_resolution_hours || null
 
   const trackingId = generateTrackingId()
 
@@ -118,12 +123,13 @@ reportsRouter.post('/', upload.array('evidence', 5), async (req: Request, res: R
   let reportsSubmittedToday = 0
 
   if (citizenId) {
-    const [citizenRows] = await pool.query(
-      'SELECT full_name, email, is_verified, trust_score FROM citizens WHERE citizen_id = ? LIMIT 1',
-      [citizenId]
-    )
-    const citizen = (citizenRows as any[])[0]
-    if (!citizen) {
+    const { data: citizen, error } = await supabaseAdmin
+      .from('citizens')
+      .select('full_name, email, is_verified, trust_score')
+      .eq('citizen_id', citizenId)
+      .single()
+
+    if (error || !citizen) {
       return res.status(404).json({ error: 'Citizen account not found' })
     }
 
@@ -136,12 +142,16 @@ reportsRouter.post('/', upload.array('evidence', 5), async (req: Request, res: R
     citizenTrustLevel = trustMeta.trustLevel
     citizenDailyLimit = trustMeta.dailyReportLimit ?? null
 
-    if (!isCitizenVerified) {
-      const [countRows] = await pool.query(
-        'SELECT COUNT(*) AS total FROM reports WHERE citizen_id = ?',
-        [citizenId]
-      )
-      const totalReports = Number((countRows as any[])[0]?.total ?? 0)
+    // Skip verification check during load testing
+    const isLoadTest = process.env.DISABLE_RATE_LIMIT === 'true'
+    
+    if (!isCitizenVerified && !isLoadTest) {
+      const { count } = await supabaseAdmin
+        .from('reports')
+        .select('*', { count: 'exact', head: true })
+        .eq('citizen_id', citizenId)
+
+      const totalReports = count || 0
       if (totalReports >= 1) {
         return res.status(403).json({
           error: 'Please verify your account before submitting more reports.',
@@ -150,12 +160,15 @@ reportsRouter.post('/', upload.array('evidence', 5), async (req: Request, res: R
       }
     }
 
-    if (citizenDailyLimit !== null) {
-      const [todayRows] = await pool.query(
-        'SELECT COUNT(*) AS total FROM reports WHERE citizen_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)',
-        [citizenId]
-      )
-      reportsSubmittedToday = Number((todayRows as any[])[0]?.total ?? 0)
+    if (citizenDailyLimit !== null && !isLoadTest) {
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+      const { count } = await supabaseAdmin
+        .from('reports')
+        .select('*', { count: 'exact', head: true })
+        .eq('citizen_id', citizenId)
+        .gte('created_at', oneDayAgo)
+
+      reportsSubmittedToday = count || 0
       if (reportsSubmittedToday >= citizenDailyLimit) {
         return res.status(429).json({
           error: 'Daily report limit reached for your current trust level.',
@@ -176,69 +189,61 @@ reportsRouter.post('/', upload.array('evidence', 5), async (req: Request, res: R
   const initialStatus = initialStatusData.status
   const requiresManualReview = initialStatusData.requiresManualReview
 
-  const [result] = await pool.query<ResultSetHeader>(
-    `INSERT INTO reports (
-        citizen_id,
-        tracking_id,
-        title,
-        category,
-        description,
-        urgency_level,
-        status,
-        location_address,
-        location_landmark,
-        location_lat,
-        location_lng,
-        assigned_department_id,
-        is_anonymous,
-        requires_manual_review,
-        expected_resolution_hours
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    , [
-      citizenId ?? null,
-      trackingId,
+  const { data: newReport, error: insertError } = await supabaseAdmin
+    .from('reports')
+    .insert({
+      citizen_id: citizenId ?? null,
+      tracking_id: trackingId,
       title,
       category,
       description,
-      urgency,
-      initialStatus,
-      locationAddress,
-      locationLandmark,
-      locationLat ?? null,
-      locationLng ?? null,
-      department.department_id,
-      isAnonymous,
-      requiresManualReview,
-      expectedResolutionHours
-    ]
-  )
+      urgency_level: urgency,
+      status: initialStatus,
+      location_address: locationAddress,
+      location_landmark: locationLandmark,
+      location_lat: locationLat ?? null,
+      location_lng: locationLng ?? null,
+      assigned_department_id: department.department_id,
+      is_anonymous: isAnonymous,
+      requires_manual_review: requiresManualReview,
+      expected_resolution_hours: expectedResolutionHours
+    })
+    .select('report_id')
+    .single()
 
-  const reportId = result.insertId
+  if (insertError || !newReport) {
+    console.error('Error inserting report:', insertError)
+    return res.status(500).json({ error: 'Failed to create report' })
+  }
 
-  await pool.query(
-    `INSERT INTO report_status_logs (report_id, action, actor_type, actor_id, old_status, new_status, remarks)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-    , [
-      reportId,
-      'Report submitted',
-      'citizen',
-      citizenId ?? null,
-      null,
-      initialStatus,
-      requiresManualReview
+  const reportId = newReport.report_id
+
+  await supabaseAdmin
+    .from('report_status_logs')
+    .insert({
+      report_id: reportId,
+      action: 'Report submitted',
+      actor_type: 'citizen',
+      actor_id: citizenId ?? null,
+      old_status: null,
+      new_status: initialStatus,
+      remarks: requiresManualReview
         ? 'Report created · queued for manual review due to citizen trust level'
         : 'Report created'
-    ]
-  )
+    })
 
   const evidenceRecords = [...evidencePayload, ...uploadedEvidence]
 
-  if (evidenceRecords.length) {
-    const values = evidenceRecords.map((item) => [reportId, item.fileUrl, item.fileType || 'photo'])
-    await pool.query(
-      'INSERT INTO report_evidence (report_id, file_url, file_type) VALUES ?'
-      , [values]
-    )
+  if (evidenceRecords.length > 0) {
+    const evidenceData = evidenceRecords.map((item) => ({
+      report_id: reportId,
+      file_url: item.fileUrl,
+      file_type: item.fileType || 'photo'
+    }))
+    
+    await supabaseAdmin
+      .from('report_evidence')
+      .insert(evidenceData)
   }
 
   // Notify department staff of new report regardless of citizen presence
@@ -254,12 +259,11 @@ reportsRouter.post('/', upload.array('evidence', 5), async (req: Request, res: R
     }
   )
 
+  // Send email asynchronously (fire-and-forget) - don't block response
   if (citizenId && citizenHasEmail && !isAnonymous) {
-    try {
-      await sendReportSubmissionReceipt(reportId)
-    } catch (error) {
+    sendReportSubmissionReceipt(reportId).catch(error => {
       console.error('Failed to send submission receipt email:', error)
-    }
+    })
   }
 
   res.status(201).json({
@@ -285,68 +289,118 @@ reportsRouter.get('/history', requireAuth, async (req: Request, res: Response) =
   const limitParam = Number(req.query.limit)
   const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(Math.floor(limitParam), 100) : 50
 
-  const [rows] = await pool.query(
-    `SELECT report_id as id,
-            tracking_id as trackingId,
-            status,
-            created_at as createdAt,
-            is_anonymous as isAnonymous,
-            requires_manual_review as requiresManualReview
-     FROM reports
-     WHERE citizen_id = ?
-     ORDER BY created_at DESC
-     LIMIT ?`,
-    [Number(user.sub), limit]
-  )
+  const { data: reports, error } = await supabaseAdmin
+    .from('reports')
+    .select('report_id, tracking_id, status, created_at, is_anonymous, requires_manual_review')
+    .eq('citizen_id', Number(user.sub))
+    .order('created_at', { ascending: false })
+    .limit(limit)
 
-  res.json(rows)
+  if (error) {
+    console.error('Error fetching citizen report history:', error)
+    return res.status(500).json({ error: 'Failed to fetch reports' })
+  }
+
+  const formattedReports = (reports || []).map(r => ({
+    id: r.report_id,
+    trackingId: r.tracking_id,
+    status: r.status,
+    createdAt: r.created_at,
+    isAnonymous: r.is_anonymous,
+    requiresManualReview: r.requires_manual_review
+  }))
+
+  res.json(formattedReports)
 })
 
 // Get by trackingId
 reportsRouter.get('/track/:trackingId', async (req, res) => {
   const { trackingId } = req.params
-  const [rows] = await pool.query(
-    `SELECT r.report_id as id,
-            r.tracking_id as trackingId,
-            r.title,
-            r.category,
-            r.description,
-            r.status,
-            r.urgency_level as urgency,
-            r.location_address as locationAddress,
-            r.location_landmark as locationLandmark,
-            r.location_lat as locationLat,
-            r.location_lng as locationLng,
-            r.created_at,
-            r.assigned_at,
-            r.resolved_at,
-            r.expected_resolution_hours as expectedResolutionHours,
-            r.requires_manual_review as requiresManualReview,
-            d.name as department,
-            d.contact_email as departmentEmail,
-            d.contact_number as departmentContact
-     FROM reports r
-     JOIN departments d ON r.assigned_department_id = d.department_id
-     WHERE r.tracking_id = ?
-     LIMIT 1`,
-    [trackingId]
-  )
-  const list = rows as any[]
-  if (!list.length) return res.status(404).json({ error: 'Not found' })
-  const report = list[0]
-  const [logs] = await pool.query(
-    `SELECT action, actor_type as actorType, actor_id as actorId, old_status as oldStatus, new_status as newStatus, remarks, created_at
-     FROM report_status_logs WHERE report_id = ? ORDER BY created_at ASC`,
-    [report.id]
-  )
-  const [evidence] = await pool.query(
-    `SELECT evidence_id as id, file_url as fileUrl, file_type as fileType, uploaded_at
-     FROM report_evidence WHERE report_id = ? ORDER BY uploaded_at ASC`,
-    [report.id]
-  )
-  report.logs = logs
-  report.evidence = evidence
-  res.json(report)
+  
+  const { data: report, error } = await supabaseAdmin
+    .from('reports')
+    .select(`
+      report_id,
+      tracking_id,
+      title,
+      category,
+      description,
+      status,
+      urgency_level,
+      location_address,
+      location_landmark,
+      location_lat,
+      location_lng,
+      created_at,
+      assigned_at,
+      resolved_at,
+      expected_resolution_hours,
+      requires_manual_review,
+      departments:assigned_department_id (
+        name,
+        contact_email,
+        contact_number
+      )
+    `)
+    .eq('tracking_id', trackingId)
+    .single()
+
+  if (error || !report) {
+    return res.status(404).json({ error: 'Not found' })
+  }
+
+  const { data: logs } = await supabaseAdmin
+    .from('report_status_logs')
+    .select('action, actor_type, actor_id, old_status, new_status, remarks, created_at')
+    .eq('report_id', report.report_id)
+    .order('created_at', { ascending: true })
+
+  const { data: evidence } = await supabaseAdmin
+    .from('report_evidence')
+    .select('evidence_id, file_url, file_type, uploaded_at')
+    .eq('report_id', report.report_id)
+    .order('uploaded_at', { ascending: true })
+
+  const department = Array.isArray(report.departments) ? report.departments[0] : report.departments
+
+  const formattedReport = {
+    id: report.report_id,
+    trackingId: report.tracking_id,
+    title: report.title,
+    category: report.category,
+    description: report.description,
+    status: report.status,
+    urgency: report.urgency_level,
+    locationAddress: report.location_address,
+    locationLandmark: report.location_landmark,
+    locationLat: report.location_lat,
+    locationLng: report.location_lng,
+    created_at: report.created_at,
+    assigned_at: report.assigned_at,
+    resolved_at: report.resolved_at,
+    expectedResolutionHours: report.expected_resolution_hours,
+    requiresManualReview: report.requires_manual_review,
+    department: department?.name,
+    departmentEmail: department?.contact_email,
+    departmentContact: department?.contact_number,
+    logs: (logs || []).map(l => ({
+      action: l.action,
+      actorType: l.actor_type,
+      actorId: l.actor_id,
+      oldStatus: l.old_status,
+      newStatus: l.new_status,
+      remarks: l.remarks,
+      created_at: l.created_at
+    })),
+    evidence: (evidence || []).map(e => ({
+      id: e.evidence_id,
+      fileUrl: e.file_url,
+      fileType: e.file_type,
+      uploaded_at: e.uploaded_at
+    }))
+  }
+
+  res.json(formattedReport)
 })
 
 // Update status
@@ -355,35 +409,42 @@ reportsRouter.patch('/:id/status', requireAuth, requireRole('STAFF', 'ADMIN'), a
   const { status, remarks } = req.body || {}
   if (!status) return res.status(400).json({ error: 'Missing status' })
 
-  const [existingRows] = await pool.query(
-    'SELECT status, citizen_id, tracking_id, title, is_anonymous, trust_credit_applied, trust_penalty_applied FROM reports WHERE report_id = ? LIMIT 1',
-    [id]
-  )
-  const existing = (existingRows as any[])[0]
-  if (!existing) return res.status(404).json({ error: 'Report not found' })
+  const { data: existing, error: fetchError } = await supabaseAdmin
+    .from('reports')
+    .select('status, citizen_id, tracking_id, title, is_anonymous, trust_credit_applied, trust_penalty_applied')
+    .eq('report_id', id)
+    .single()
+
+  if (fetchError || !existing) {
+    return res.status(404).json({ error: 'Report not found' })
+  }
 
   const normalizedStatus = status
   const shouldResolve = normalizedStatus.toLowerCase() === 'resolved'
 
-  await pool.query(
-    'UPDATE reports SET status = ?, resolved_at = CASE WHEN ? THEN NOW() ELSE resolved_at END WHERE report_id = ?',
-    [normalizedStatus, shouldResolve, id]
-  )
+  const updateData: any = { status: normalizedStatus }
+  if (shouldResolve) {
+    updateData.resolved_at = new Date().toISOString()
+  }
+
+  await supabaseAdmin
+    .from('reports')
+    .update(updateData)
+    .eq('report_id', id)
 
   const user = (req as any).user as { sub: string; role: string; name?: string }
-  await pool.query(
-    `INSERT INTO report_status_logs (report_id, action, actor_type, actor_id, old_status, new_status, remarks)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-    , [
-      id,
-      `Status updated to ${normalizedStatus}`,
-      user.role.toLowerCase(),
-      Number(user.sub),
-      existing.status,
-      normalizedStatus,
-      remarks || null
-    ]
-  )
+  
+  await supabaseAdmin
+    .from('report_status_logs')
+    .insert({
+      report_id: Number(id),
+      action: `Status updated to ${normalizedStatus}`,
+      actor_type: user.role.toLowerCase(),
+      actor_id: Number(user.sub),
+      old_status: existing.status,
+      new_status: normalizedStatus,
+      remarks: remarks || null
+    })
 
   await applyTrustTransition({
     citizenId: existing.citizen_id ? Number(existing.citizen_id) : null,
@@ -394,13 +455,15 @@ reportsRouter.patch('/:id/status', requireAuth, requireRole('STAFF', 'ADMIN'), a
     trustPenaltyApplied: Boolean(existing.trust_penalty_applied)
   })
 
-  // Send email notification
+  // Send email notification asynchronously (fire-and-forget)
   if (!existing.is_anonymous) {
-    await sendReportUpdateNotification({
+    sendReportUpdateNotification({
       reportId: Number(id),
       message: remarks || null,
       newStatus: normalizedStatus,
       actorName: user.name || null
+    }).catch(error => {
+      console.error('Failed to send update notification email:', error)
     })
   }
 
@@ -425,33 +488,39 @@ reportsRouter.post('/:id/respond', requireAuth, requireRole('STAFF', 'ADMIN'), a
   const { message } = req.body || {}
   if (!message) return res.status(400).json({ error: 'Message is required' })
 
-  const [existingRows] = await pool.query('SELECT report_id, status, citizen_id, tracking_id, title, is_anonymous FROM reports WHERE report_id = ? LIMIT 1', [id])
-  const existing = (existingRows as any[])[0]
-  if (!existing) return res.status(404).json({ error: 'Report not found' })
+  const { data: existing, error: fetchError } = await supabaseAdmin
+    .from('reports')
+    .select('report_id, status, citizen_id, tracking_id, title, is_anonymous')
+    .eq('report_id', id)
+    .single()
+
+  if (fetchError || !existing) {
+    return res.status(404).json({ error: 'Report not found' })
+  }
 
   const user = (req as any).user as { sub: string; role: string; name?: string }
 
-  await pool.query(
-    `INSERT INTO report_status_logs (report_id, action, actor_type, actor_id, old_status, new_status, remarks)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-    , [
-      id,
-      'Department response recorded',
-      user.role.toLowerCase(),
-      Number(user.sub),
-      existing.status,
-      existing.status,
-      message
-    ]
-  )
+  await supabaseAdmin
+    .from('report_status_logs')
+    .insert({
+      report_id: Number(id),
+      action: 'Department response recorded',
+      actor_type: user.role.toLowerCase(),
+      actor_id: Number(user.sub),
+      old_status: existing.status,
+      new_status: existing.status,
+      remarks: message
+    })
 
-  // Send email notification
+  // Send email notification asynchronously (fire-and-forget)
   if (!existing.is_anonymous) {
-    await sendReportUpdateNotification({
+    sendReportUpdateNotification({
       reportId: Number(id),
       message,
       newStatus: null,
       actorName: user.name || null
+    }).catch(error => {
+      console.error('Failed to send update notification email:', error)
     })
   }
 
@@ -483,7 +552,6 @@ reportsRouter.post('/:id/actions', requireAuth, requireRole('STAFF', 'ADMIN'), a
 
   const user = (req as any).user as { sub: string; role: string; name?: string }
 
-  const connection = await pool.getConnection()
   let citizenId: number | null = null
   let isAnonymous = false
   let statusChanged = false
@@ -492,17 +560,17 @@ reportsRouter.post('/:id/actions', requireAuth, requireRole('STAFF', 'ADMIN'), a
   let trustPenaltyApplied = false
   let previousStatus: string | null = null
   let currentStatus: string | null = null
+  let trackingId: string | undefined
+  let title: string | undefined
 
   try {
-    await connection.beginTransaction()
+    const { data: existing, error: fetchError } = await supabaseAdmin
+      .from('reports')
+      .select('status, citizen_id, tracking_id, title, is_anonymous, trust_credit_applied, trust_penalty_applied')
+      .eq('report_id', id)
+      .single()
 
-    const [existingRows] = await connection.query(
-      'SELECT status, citizen_id, tracking_id, title, is_anonymous, trust_credit_applied, trust_penalty_applied FROM reports WHERE report_id = ? LIMIT 1 FOR UPDATE',
-      [id]
-    )
-    const existing = (existingRows as any[])[0]
-    if (!existing) {
-      await connection.rollback()
+    if (fetchError || !existing) {
       return res.status(404).json({ error: 'Report not found' })
     }
 
@@ -514,50 +582,51 @@ reportsRouter.post('/:id/actions', requireAuth, requireRole('STAFF', 'ADMIN'), a
     isAnonymous = Boolean(existing.is_anonymous)
     trustCreditApplied = Boolean(existing.trust_credit_applied)
     trustPenaltyApplied = Boolean(existing.trust_penalty_applied)
+    trackingId = existing.tracking_id
+    title = existing.title
 
     if (newStatus) {
       const shouldResolve = newStatus.toLowerCase() === 'resolved'
-      await connection.query(
-        'UPDATE reports SET status = ?, resolved_at = CASE WHEN ? THEN NOW() ELSE resolved_at END WHERE report_id = ?',
-        [newStatus, shouldResolve, id]
-      )
+      const updateData: any = { status: newStatus }
+      if (shouldResolve) {
+        updateData.resolved_at = new Date().toISOString()
+      }
 
-      await connection.query(
-        `INSERT INTO report_status_logs (report_id, action, actor_type, actor_id, old_status, new_status, remarks)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-        , [
-          id,
-          `Status updated to ${newStatus}`,
-          actorType,
-          actorId,
-          currentStatus,
-          newStatus,
-          trimmedMessage || null
-        ]
-      )
+      await supabaseAdmin
+        .from('reports')
+        .update(updateData)
+        .eq('report_id', id)
+
+      await supabaseAdmin
+        .from('report_status_logs')
+        .insert({
+          report_id: Number(id),
+          action: `Status updated to ${newStatus}`,
+          actor_type: actorType,
+          actor_id: actorId,
+          old_status: currentStatus,
+          new_status: newStatus,
+          remarks: trimmedMessage || null
+        })
 
       currentStatus = newStatus
       statusChanged = true
     }
 
     if (trimmedMessage && !newStatus) {
-      await connection.query(
-        `INSERT INTO report_status_logs (report_id, action, actor_type, actor_id, old_status, new_status, remarks)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-        , [
-          id,
-          'Department response recorded',
-          actorType,
-          actorId,
-          currentStatus,
-          currentStatus,
-          trimmedMessage
-        ]
-      )
+      await supabaseAdmin
+        .from('report_status_logs')
+        .insert({
+          report_id: Number(id),
+          action: 'Department response recorded',
+          actor_type: actorType,
+          actor_id: actorId,
+          old_status: currentStatus,
+          new_status: currentStatus,
+          remarks: trimmedMessage
+        })
       messageRecorded = true
     }
-
-    await connection.commit()
 
     const finalStatus = currentStatus ?? previousStatus ?? 'Pending'
 
@@ -567,31 +636,26 @@ reportsRouter.post('/:id/actions', requireAuth, requireRole('STAFF', 'ADMIN'), a
       previousStatus,
       newStatus: finalStatus,
       trustCreditApplied,
-      trustPenaltyApplied,
-      connection
+      trustPenaltyApplied
     })
   } catch (err) {
-    await connection.rollback()
-    throw err
-  } finally {
-    connection.release()
+    console.error('Error in actions endpoint:', err)
+    return res.status(500).json({ error: 'Failed to process action' })
   }
 
+  // Send email notification asynchronously (fire-and-forget)
   if (!isAnonymous) {
-    await sendReportUpdateNotification({
+    sendReportUpdateNotification({
       reportId: Number(id),
       message: trimmedMessage || null,
       newStatus,
       actorName: user.name || null
+    }).catch(error => {
+      console.error('Failed to send update notification email:', error)
     })
   }
 
   if (citizenId && !isAnonymous) {
-    const [reportRows] = await pool.query('SELECT tracking_id, title FROM reports WHERE report_id = ? LIMIT 1', [id])
-    const report = (reportRows as any[])[0]
-    const trackingId = report?.tracking_id
-    const title = report?.title
-
     if (statusChanged && newStatus) {
       await notifyCitizenOfStatusChange(Number(id), citizenId, newStatus, user.name, trackingId, title)
     } else if (messageRecorded && trimmedMessage) {

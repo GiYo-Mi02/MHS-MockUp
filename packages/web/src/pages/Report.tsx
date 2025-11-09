@@ -58,7 +58,6 @@ export function Report() {
   const [verificationCode, setVerificationCode] = useState('')
   const [requestingVerification, setRequestingVerification] = useState(false)
   const [confirmingVerification, setConfirmingVerification] = useState(false)
-  const [devVerificationCode, setDevVerificationCode] = useState<string | null>(null)
 
   useEffect(() => {
     register('locationLat')
@@ -220,11 +219,6 @@ export function Report() {
     setRequestingVerification(true)
     try {
       const { data } = await api.post('/auth/verification/request', { method: 'email' })
-      if (typeof data?.code === 'string') {
-        setDevVerificationCode(data.code)
-      } else {
-        setDevVerificationCode(null)
-      }
       try {
         await refresh()
       } catch (_err) {
@@ -234,7 +228,7 @@ export function Report() {
       showSuccess(
         'Verification code sent',
         deliverySkipped
-          ? 'Email delivery is not configured. Use the code displayed below to verify your account.'
+          ? 'Email delivery is not configured. Use the code delivered through your testing channel.'
           : 'Check your inbox for the 6-digit code.'
       )
     } catch (error: any) {
@@ -257,7 +251,6 @@ export function Report() {
       await api.post('/auth/verification/confirm', { code: trimmed })
       showSuccess('Account verified', 'Thanks! You can now submit reports without restrictions.')
       setVerificationCode('')
-      setDevVerificationCode(null)
       try {
         await refresh()
       } catch (_err) {
@@ -516,12 +509,7 @@ export function Report() {
                   )}
                   {verificationExpiresAt && (
                     <p className="text-xs text-amber-700 dark:text-amber-100/80">
-                      Current code expires {verificationExpiresAt.toLocaleString()}.
-                    </p>
-                  )}
-                  {devVerificationCode && (
-                    <p className="text-xs font-mono text-amber-700 dark:text-amber-200">
-                      Dev code: {devVerificationCode}
+                      Enter the code within 15 minutes to finish verification.
                     </p>
                   )}
                 </div>
