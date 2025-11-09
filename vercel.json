@@ -2,9 +2,6 @@
   "buildCommand": "npm install --workspace=@makati-report/web && npm run build --workspace=@makati-report/web",
   "outputDirectory": "packages/web/dist",
   "framework": "vite",
-  "env": {
-    "VITE_API_URL": "@VITE_API_URL"
-  },
   "redirects": [
     {
       "source": "/(.*)",
