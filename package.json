@@ -9,7 +9,9 @@
     "postinstall": "npm run -ws postinstall || echo postinstall done",
     "dev": "npm run -ws dev",
     "build": "npm run -ws build",
-    "start": "npm run -ws start",
+    "build:server": "npm run build --workspace=@makati-report/server",
+    "start": "cd packages/server && node dist/index.js",
+    "start:dev": "npm run -ws dev",
     "lint": "npm run -ws lint",
     "format": "npm run -ws format"
   },

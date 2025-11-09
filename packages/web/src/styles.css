@@ -1,3 +1,137 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    @apply min-h-screen bg-neutral-50 text-neutral-900 antialiased;
+    background-image:
+      radial-gradient(
+        circle at top left,
+        rgba(39, 89, 150, 0.18),
+        transparent 55%
+      ),
+      radial-gradient(
+        circle at bottom right,
+        rgba(39, 89, 150, 0.12),
+        transparent 60%
+      ),
+      linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(243, 244, 255, 0.8));
+  }
+
+  .dark body {
+    @apply bg-brand-dark text-neutral-50;
+    background-image:
+      radial-gradient(
+        circle at top left,
+        rgba(39, 89, 150, 0.45),
+        transparent 55%
+      ),
+      radial-gradient(
+        circle at bottom right,
+        rgba(39, 89, 150, 0.25),
+        transparent 60%
+      ),
+      linear-gradient(180deg, rgba(1, 6, 28, 0.95), rgba(1, 6, 28, 0.98));
+  }
+
+  a {
+    @apply text-brand hover:text-brand-focus transition-colors;
+    @apply dark:text-brand-softer dark:hover:text-white;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply text-neutral-900 dark:text-neutral-50;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-neutral-200 bg-white text-neutral-900 shadow-xl shadow-neutral-900/5 backdrop-blur;
+    @apply dark:border-white/5 dark:bg-surface dark:text-neutral-50 dark:shadow-elevated;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-brand/25 transition;
+    @apply hover:bg-brand-focus focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-white;
+    @apply dark:focus-visible:ring-offset-brand-dark;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-brand/20 bg-brand/5 px-5 py-2 text-sm font-semibold text-brand transition;
+    @apply hover:bg-brand/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-white;
+    @apply dark:border-white/20 dark:bg-white/5 dark:text-neutral-50 dark:hover:bg-white/10 dark:focus-visible:ring-offset-brand-dark;
+  }
+
+  .input-field {
+    @apply w-full rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 transition;
+    @apply focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30;
+    @apply dark:border-white/10 dark:bg-white/5 dark:text-neutral-50 dark:placeholder:text-white/40 dark:focus:border-brand-softer dark:focus:ring-brand/40;
+  }
+
+  .text-muted {
+    @apply text-neutral-500 dark:text-white/60;
+  }
+
+  .surface-chip {
+    @apply rounded-full border border-neutral-200 bg-neutral-100/70 px-3 py-1 text-xs font-medium text-neutral-700;
+    @apply dark:border-white/15 dark:bg-white/10 dark:text-neutral-100;
+  }
+
+  .surface-subtle {
+    @apply rounded-xl border border-neutral-200 bg-neutral-100/60 text-neutral-700;
+    @apply dark:border-white/10 dark:bg-white/5 dark:text-white/70;
+  }
+
+  .badge-outline {
+    @apply inline-flex items-center justify-center rounded-full border border-neutral-300 bg-white px-3 py-1 text-xs font-medium text-neutral-700;
+    @apply dark:border-white/20 dark:bg-white/5 dark:text-white/70;
+  }
+
+  .badge-soft {
+    @apply inline-flex items-center justify-center rounded-full bg-brand/10 px-3 py-1 text-xs font-semibold text-brand;
+    @apply dark:bg-brand/30 dark:text-white;
+  }
+
+  .stat-label {
+    @apply text-xs uppercase tracking-wide text-neutral-500 dark:text-white/50;
+  }
+
+  .text-secondary {
+    @apply text-sm text-neutral-600 dark:text-white/60;
+  }
+
+  .text-faint {
+    @apply text-xs text-neutral-500 dark:text-white/40;
+  }
+}
+
+@keyframes page-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer utilities {
+  .page-slide-up {
+    animation: page-slide-up 0.65s ease-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .page-slide-up {
+      animation: none;
+    }
+  }
+}

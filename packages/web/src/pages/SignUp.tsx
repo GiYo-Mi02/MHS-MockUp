@@ -1,66 +1,100 @@
-import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { api } from '@/lib/api'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { useToast } from '@/lib/toast'
+import { useAuth } from '@/lib/auth'
 
-type Form = { name: string; email: string; password: string; role?: string; departmentId?: number }
+type Form = {
+  name: string
+  email: string
+  password: string
+  contactNumber?: string
+}
 
 export function SignUp() {
   const { register, handleSubmit } = useForm<Form>()
-  const [departments, setDepartments] = useState<Array<{ id: number; name: string }>>([])
+  const { showSuccess, showError } = useToast()
   const navigate = useNavigate()
+  const location = useLocation()
+  const { signin } = useAuth()
 
-  useEffect(() => {
-    api.get('/departments').then((res) => setDepartments(res.data as any))
-  }, [])
+  const resolveNextPath = (): string => {
+    const params = new URLSearchParams(location.search)
+    const nextParam = params.get('next')
+    const nextPath = nextParam && nextParam.startsWith('/') ? nextParam : '/'
+    // Avoid looping back to verify itself
+    return nextPath === '/verify' ? '/' : nextPath
+  }
 
   const onSubmit = async (data: Form) => {
     try {
-      const payload: any = { name: data.name, email: data.email, password: data.password, role: data.role || 'CITIZEN' }
-      if (payload.role !== 'CITIZEN' && data.departmentId) payload.departmentId = data.departmentId
+      const payload: any = {
+        name: data.name,
+        email: data.email,
+        password: data.password,
+        contactNumber: data.contactNumber
+      }
       await api.post('/auth/signup', payload)
-      alert('Account created. You can now sign in.')
-      navigate('/signin')
+
+      // Attempt to create a session (citizen may be unverified – that's OK)
+      try {
+        const signedIn = await signin(data.email, data.password)
+        if (signedIn?.role === 'CITIZEN' && !signedIn.isVerified) {
+          const encodedNext = encodeURIComponent(resolveNextPath())
+          showSuccess('Account created!', 'Enter the 6-digit code we sent to verify your account.')
+          navigate(`/verify?next=${encodedNext}`)
+          return
+        }
+        // If somehow already verified (edge case) go straight to next
+        if (signedIn?.isVerified) {
+          showSuccess('Account ready', 'Welcome back!')
+          navigate(resolveNextPath())
+          return
+        }
+      } catch (err: any) {
+        // Signin failing should not block showing verify page (rare edge case)
+        const encodedNext = encodeURIComponent(resolveNextPath())
+        navigate(`/verify?next=${encodedNext}`)
+        showSuccess('Account created!', 'Enter the 6-digit code we sent to verify your account.')
+        return
+      }
     } catch (e: any) {
-      alert(e?.response?.data?.error || 'Sign up failed')
+      const errorMessage = e?.response?.data?.error || 'Sign up failed'
+      showError('Sign up failed', errorMessage)
     }
   }
 
   return (
-    <section className="max-w-md">
-      <h1 className="text-xl font-semibold mb-4">Create Account</h1>
-      <form className="space-y-3" onSubmit={handleSubmit(onSubmit)}>
-        <div>
-          <label className="block text-sm">Full Name</label>
-          <input className="w-full border rounded px-3 py-2" {...register('name', { required: true })} />
+    <section className="mx-auto max-w-xl">
+      <div className="card px-8 py-10">
+        <div className="mb-6 space-y-2">
+          <h1 className="text-2xl font-semibold">Create a citizen account</h1>
+          <p className="text-secondary">Save your details once and track every report effortlessly.</p>
         </div>
-        <div>
-          <label className="block text-sm">Email</label>
-          <input className="w-full border rounded px-3 py-2" type="email" {...register('email', { required: true })} />
-        </div>
-        <div>
-          <label className="block text-sm">Password</label>
-          <input className="w-full border rounded px-3 py-2" type="password" {...register('password', { required: true })} />
-        </div>
-        <div>
-          <label className="block text-sm">Role</label>
-          <select className="w-full border rounded px-3 py-2" {...register('role')}>
-            <option value="CITIZEN">Citizen</option>
-            <option value="STAFF">Department Staff</option>
-            <option value="ADMIN">LGU Admin</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm">Department (for Staff/Admin)</label>
-          <select className="w-full border rounded px-3 py-2" {...register('departmentId')}> 
-            <option value="">Select…</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
-          </select>
-        </div>
-        <button className="px-4 py-2 bg-blue-600 text-white rounded" type="submit">Create Account</button>
-      </form>
+        <form className="grid gap-5" onSubmit={handleSubmit(onSubmit)}>
+          <div className="grid gap-2">
+            <label className="stat-label">Full name</label>
+            <input className="input-field" placeholder="Juan Dela Cruz" {...register('name', { required: true })} />
+          </div>
+          <div className="grid gap-2">
+            <label className="stat-label">Email</label>
+            <input className="input-field" type="email" autoComplete="email" {...register('email', { required: true })} />
+          </div>
+          <div className="grid gap-2">
+            <label className="stat-label">Password</label>
+            <input className="input-field" type="password" autoComplete="new-password" {...register('password', { required: true })} />
+          </div>
+          <div className="grid gap-2">
+            <label className="stat-label">Contact number</label>
+            <input className="input-field" type="tel" placeholder="09xx xxx xxxx" {...register('contactNumber')} />
+          </div>
+          <button className="btn-primary" type="submit">Create account</button>
+        </form>
+        <p className="mt-6 text-center text-faint">
+          Already registered?{' '}
+          <a href="/signin" className="text-brand hover:text-brand-focus dark:text-brand-softer dark:hover:text-white">Sign in</a>
+        </p>
+      </div>
     </section>
   )
 }
