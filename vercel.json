@@ -2,14 +2,10 @@
   "buildCommand": "npm run build --workspace=@makati-report/web",
   "outputDirectory": "packages/web/dist",
   "framework": "vite",
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/.*",
-      "status": 404
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
