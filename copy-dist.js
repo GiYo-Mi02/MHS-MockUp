@@ -1,8 +1,8 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
 
-const src = path.join(__dirname, 'packages/web/dist');
-const dest = path.join(__dirname, 'public');
+const src = path.join(__dirname, "packages/web/dist");
+const dest = path.join(__dirname, "public");
 
 // Remove destination if it exists
 if (fs.existsSync(dest)) {
@@ -11,4 +11,4 @@ if (fs.existsSync(dest)) {
 
 // Copy the dist folder to public
 fs.cpSync(src, dest, { recursive: true });
-console.log('✓ Copied packages/web/dist to public/');
+console.log("✓ Copied packages/web/dist to public/");
