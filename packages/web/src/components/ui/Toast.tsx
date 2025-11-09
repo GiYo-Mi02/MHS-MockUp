@@ -55,7 +55,7 @@ export function Toast({ toast, onClose }: ToastProps) {
     const showTimer = setTimeout(() => setIsVisible(true), 50)
     
     // Auto-dismiss after duration
-    let dismissTimer: NodeJS.Timeout
+    let dismissTimer: ReturnType<typeof setTimeout>
     if (toast.duration && toast.duration > 0) {
       dismissTimer = setTimeout(() => {
         handleClose()
