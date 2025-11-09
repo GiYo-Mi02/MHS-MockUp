@@ -2,18 +2,11 @@
   "buildCommand": "npm install --workspace=@makati-report/web && npm run build --workspace=@makati-report/web",
   "outputDirectory": "packages/web/dist",
   "framework": "react",
-  "nodeVersion": "18.x",
   "env": {
     "VITE_API_URL": "@VITE_API_URL"
   },
   "envPrefix": "VITE_",
   "regions": ["sfo"],
-  "functions": {
-    "packages/web/dist": {
-      "memory": 1024,
-      "maxDuration": 60
-    }
-  },
   "redirects": [
     {
       "source": "/(.*)",
