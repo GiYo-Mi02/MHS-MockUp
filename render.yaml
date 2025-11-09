@@ -3,9 +3,8 @@ services:
     name: makati-report-api
     env: node
     plan: free
-    rootDir: .
-    buildCommand: npm install && npm run build --workspace=@makati-report/server
-    startCommand: node packages/server/dist/index.js
+    buildCommand: bash .render/build.sh
+    startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production

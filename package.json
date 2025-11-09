@@ -9,7 +9,8 @@
     "postinstall": "npm run -ws postinstall || echo postinstall done",
     "dev": "npm run -ws dev",
     "build": "npm run -ws build",
-    "start": "npm run -ws start",
+    "start": "node packages/server/dist/index.js",
+    "start:dev": "npm run -ws dev",
     "lint": "npm run -ws lint",
     "format": "npm run -ws format"
   },
