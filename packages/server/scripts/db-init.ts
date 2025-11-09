@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { readFileSync } from 'fs'
 import path from 'path'
-import { pool } from '../src/db'
+import { pool } from '../src/supabase'
 
 async function main() {
   const sql = readFileSync(path.join(process.cwd(), 'scripts', 'schema.sql'), 'utf-8')

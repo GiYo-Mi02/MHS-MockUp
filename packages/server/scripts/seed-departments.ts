@@ -85,7 +85,7 @@ async function seedDepartments() {
 async function seedSLAPolicies() {
   console.log('🌱 Seeding SLA policies...');
 
-  const policies = [];
+  const policies: Array<{ category: string; urgency_level: string; expected_resolution_hours: number }> = [];
   const categories = ['GARBAGE', 'TRAFFIC', 'SAFETY', 'ROADS', 'OTHERS'];
   const urgencies = [
     { level: 'Critical', hours: { GARBAGE: 2, TRAFFIC: 1, SAFETY: 1, ROADS: 4, OTHERS: 4 } },

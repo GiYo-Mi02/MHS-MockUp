@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: makati-report-api
+    env: node
+    plan: free
+    buildCommand: |
+      npm install --workspace=@makati-report/server &&
+      npm run build --workspace=@makati-report/server
+    startCommand: node packages/server/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: CORS_ORIGIN
+        value: https://makati-report.vercel.app
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TOKEN_COOKIE
+        value: mr_token
+      - key: VERIFICATION_TTL_MINUTES
+        value: 15
+      - key: SUPABASE_URL
+        scope: build
+      - key: SUPABASE_ANON_KEY
+        scope: build
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        scope: build
+      - key: SMTP_HOST
+        scope: build
+      - key: SMTP_PORT
+        value: 587
+        scope: build
+      - key: SMTP_USER
+        scope: build
+      - key: SMTP_PASS
+        scope: build
+      - key: EMAIL_FROM
+        scope: build
