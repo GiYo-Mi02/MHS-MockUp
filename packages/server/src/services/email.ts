@@ -61,11 +61,18 @@ export async function verifyEmailTransport(): Promise<boolean> {
   }
 
   try {
-    await transporter.verify()
+    // Add a timeout for verification (5 seconds)
+    const verifyPromise = transporter.verify()
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Email verification timeout')), 5000)
+    )
+    
+    await Promise.race([verifyPromise, timeoutPromise])
     console.info('Email transport verified for %s:%d (from %s)', SMTP_HOST, SMTP_PORT, FROM_ADDRESS)
     return true
   } catch (error) {
-    console.error('Email transport verification failed:', error)
+    // Don't throw errors for email verification - just log warnings
+    console.warn('Email transport verification warning:', (error as Error)?.message || String(error))
     return false
   }
 }

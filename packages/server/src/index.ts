@@ -21,6 +21,9 @@ const app = express()
 const PORT = Number(process.env.PORT || 4000)
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173'
 
+// Trust proxy for rate limiting behind Render's reverse proxy
+app.set('trust proxy', 1)
+
 // Security headers
 app.use(helmet({
   contentSecurityPolicy: false, // Disable for API
