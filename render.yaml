@@ -3,7 +3,7 @@ services:
     name: makati-report-api
     env: node
     plan: free
-    buildCommand: npm install && npm run build:server
+    buildCommand: npm install && npm run build:server && echo "=== Build complete, checking dist ===" && find . -name "index.js" -type f | head -20
     startCommand: bash .render/start.sh
     envVars:
       - key: NODE_ENV
