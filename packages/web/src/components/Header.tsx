@@ -21,20 +21,20 @@ export function Header() {
       <div className="relative container flex items-center justify-between py-5">
         <Link
           to="/"
-          aria-label="Go to MakatiReport home"
+          aria-label="Go to Makati Aid home"
           className="flex items-center gap-3 text-neutral-900 transition hover:opacity-90 dark:text-white"
         >
-          <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow-lg shadow-brand/40 dark:bg-white/90">
+          <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-white p-1 shadow-lg shadow-brand/40 dark:bg-white/90">
             <img
-              src="/Makati-Cares.png"
-              alt="Makati Cares logo"
-              className="h-full w-full object-contain"
+              src="/Logos.png"
+              alt="Makati Aid logo"
+              className="h-full w-full scale-150 object-contain"
               loading="eager"
             />
           </span>
           <div>
             <div className="text-sm uppercase tracking-[0.3em] text-neutral-500 dark:text-white/60">City of Makati</div>
-            <div className="text-lg font-semibold">Makati-Cares</div>
+            <div className="text-lg font-semibold">Makati Aid</div>
           </div>
         </Link>
 

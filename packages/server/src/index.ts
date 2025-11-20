@@ -33,8 +33,19 @@ app.use(helmet({
 // Enable compression for all responses
 app.use(compression())
 
-// CORS configuration
-app.use(cors({ origin: CORS_ORIGIN, credentials: true }))
+// CORS configuration - allow multiple origins
+const corsOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  ...(CORS_ORIGIN ? [CORS_ORIGIN] : [])
+]
+
+app.use(cors({ 
+  origin: corsOrigins, 
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}))
 
 // Body parsers with increased limits for file uploads
 app.use(express.json({ limit: '10mb' }))
