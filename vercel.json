@@ -2,7 +2,13 @@
   "buildCommand": "npm run build --workspace=@makati-report/web",
   "outputDirectory": "packages/web/dist",
   "framework": "vite",
+  "cleanUrls": true,
+  "trailingSlash": false,
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://mhs-mockup-4.onrender.com/api/$1"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
