@@ -1,4 +1,4 @@
-import nodemailer, { type Transporter } from 'nodemailer'
+import nodemailer, { type Transporter, type SentMessageInfo } from 'nodemailer'
 
 const SMTP_HOST = process.env.SMTP_HOST || ''
 const SMTP_PORT = Number(process.env.SMTP_PORT || 587)
@@ -8,9 +8,9 @@ const SMTP_SECURE = String(process.env.SMTP_SECURE || '').toLowerCase() === 'tru
 const EMAIL_FROM = process.env.EMAIL_FROM || ''
 const FROM_ADDRESS = EMAIL_FROM || SMTP_USER || ''
 
-let cachedTransporter: Transporter | null = null
+let cachedTransporter: Transporter<SentMessageInfo> | null = null
 
-function buildTransporter(): Transporter | null {
+function buildTransporter(): Transporter<SentMessageInfo> | null {
   if (!SMTP_HOST) {
     return null
   }
