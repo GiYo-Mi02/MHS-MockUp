@@ -1,7 +1,6 @@
 {
-  "buildCommand": "npm install && npm run build --workspace=@makati-report/web",
+  "buildCommand": "npm run build --workspace=@makati-report/web",
   "outputDirectory": "packages/web/dist",
-  "public": "packages/web/dist",
   "framework": "vite",
   "cleanUrls": true,
   "trailingSlash": false,
