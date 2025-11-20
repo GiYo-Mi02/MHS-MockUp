@@ -16,6 +16,7 @@
     "format": "npm run -ws format"
   },
   "devDependencies": {
+    "baseline-browser-mapping": "^2.8.30",
     "concurrently": "^8.2.2"
   }
 }

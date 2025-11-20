@@ -265,7 +265,7 @@ function formatSlaRate(met: number, breach: number) {
 }
 
 const baseStatuses = ['Pending', 'Manual Review', 'In Progress', 'Resolved', 'Cancelled', 'Invalid']
-const DEPARTMENT_PAGE_SIZE = 5
+const DEPARTMENT_PAGE_SIZE = 10
 
 function DeptView() {
   const { user } = useAuth()
@@ -278,13 +278,26 @@ function DeptView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [timeline, setTimeline] = useState<ReportLog[]>([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalReports, setTotalReports] = useState(0)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [loadingMore, setLoadingMore] = useState(false)
+  const tableBodyRef = useRef<HTMLTableSectionElement | null>(null)
 
-  const fetchData = async () => {
-    setLoading(true)
+  const fetchData = async (page: number = 1, search: string = '') => {
+    const isFirstLoad = page === 1
+    if (isFirstLoad) {
+      setLoading(true)
+    } else {
+      setLoadingMore(true)
+    }
     setError(null)
     try {
       const [queueRes, statsRes] = await Promise.all([
-        api.get('/dashboards/department'),
+        api.get('/dashboards/department', {
+          params: { page, pageSize: DEPARTMENT_PAGE_SIZE, search }
+        }),
         api.get('/dashboards/department/stats')
       ])
 
@@ -301,29 +314,38 @@ function DeptView() {
         requiresManualReview: Boolean(item.requiresManualReview)
       }))
 
-      setReports(normalizedItems as DepartmentReport[])
-      setStats(statsRes.data as DepartmentStats)
-
-      if (!items.length) {
-        setSelectedId(null)
-        setTimeline([])
+      if (isFirstLoad) {
+        setReports(normalizedItems as DepartmentReport[])
       } else {
-        if (!selectedId || !items.find((r) => r.id === selectedId)) {
-          setSelectedId(items[0].id)
-        }
+        setReports((prev) => [...prev, ...normalizedItems])
+      }
+
+      setStats(statsRes.data as DepartmentStats)
+      setCurrentPage(page)
+      setTotalPages(queuePayload && typeof queuePayload === 'object' && 'totalPages' in queuePayload ? queuePayload.totalPages : 1)
+      setTotalReports(queuePayload && typeof queuePayload === 'object' && 'total' in queuePayload ? queuePayload.total : 0)
+
+      if (isFirstLoad && normalizedItems.length > 0) {
+        setSelectedId(normalizedItems[0].id)
       }
     } catch (e) {
       console.error(e)
       setError('Unable to load department queue right now.')
     } finally {
-      setLoading(false)
+      if (isFirstLoad) {
+        setLoading(false)
+      } else {
+        setLoadingMore(false)
+      }
     }
   }
 
   useEffect(() => {
-    fetchData()
+    setCurrentPage(1)
+    setReports([])
+    fetchData(1, searchQuery)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.departmentId])
+  }, [user?.departmentId, searchQuery])
 
   const selectedReport = useMemo(() => reports.find((r) => r.id === selectedId) || null, [reports, selectedId])
 
@@ -380,7 +402,7 @@ function DeptView() {
       setResponseMessage('')
       setStatusChange('')
       const currentTracking = selectedReport.trackingId
-      await fetchData()
+      await fetchData(1, searchQuery)
       try {
         const timelineRes = await api.get(`/reports/track/${currentTracking}`)
         setTimeline((timelineRes.data.logs as ReportLog[] | undefined) ?? [])
@@ -393,6 +415,16 @@ function DeptView() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleLoadMore = () => {
+    if (currentPage < totalPages && !loadingMore) {
+      fetchData(currentPage + 1, searchQuery)
+    }
+  }
+
+  const handleSearch = (value: string) => {
+    setSearchQuery(value)
   }
 
   const statusMap = useMemo(() => {
@@ -489,58 +521,108 @@ function DeptView() {
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Active Reports</h2>
-          <button onClick={fetchData} className="text-sm text-neutral-600 transition hover:text-brand dark:text-white/60 dark:hover:text-white">Refresh data</button>
+          <button onClick={() => fetchData(1, searchQuery)} className="text-sm text-neutral-600 transition hover:text-brand dark:text-white/60 dark:hover:text-white">Refresh data</button>
         </div>
+        
+        {/* Search Bar */}
+        {reports.length > 0 && (
+          <div className="card px-5 py-3">
+            <div className="flex items-center gap-2">
+              <svg className="h-5 w-5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search by tracking ID, title, or category..."
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                className="flex-1 bg-transparent text-sm outline-none text-neutral-900 placeholder-neutral-400 dark:text-white dark:placeholder-neutral-500"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => handleSearch('')}
+                  className="text-xs text-neutral-500 hover:text-neutral-700 dark:text-white/50 dark:hover:text-white/70"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="card px-5 py-5 text-secondary">Loading queue…</div>
         ) : reports.length === 0 ? (
-          <div className="card px-5 py-5 text-secondary">No reports assigned to your department yet.</div>
+          <div className="card px-5 py-5 text-secondary">
+            {searchQuery ? 'No reports match your search.' : 'No reports assigned to your department yet.'}
+          </div>
         ) : (
-          <div className="card overflow-hidden">
-            <table className="min-w-full divide-y divide-neutral-200 text-sm text-neutral-700 dark:divide-white/10 dark:text-white/70">
-              <thead className="bg-neutral-100 text-xs uppercase tracking-wide text-neutral-600 dark:bg-white/5 dark:text-white/50">
-                <tr>
-                  <th className="px-4 py-3 text-left">Tracking ID</th>
-                  <th className="px-4 py-3 text-left">Citizen</th>
-                  <th className="px-4 py-3 text-left">Category</th>
-                  <th className="px-4 py-3 text-left">Urgency</th>
-                  <th className="px-4 py-3 text-left">Status</th>
-                  <th className="px-4 py-3 text-left">Submitted</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-200 dark:divide-white/10">
-                {reports.map((r) => (
-                  <tr
-                    key={r.id}
-                    onClick={() => setSelectedId(r.id)}
-                    className={`cursor-pointer transition ${
-                      selectedId === r.id
-                        ? 'bg-neutral-200/70 dark:bg-white/10'
-                        : 'bg-neutral-100/40 hover:bg-neutral-200/70 dark:bg-white/[0.02] dark:hover:bg-white/10'
-                    }`}
-                  >
-                    <td className="px-4 py-3 font-mono text-xs text-neutral-800 dark:text-white/80">{r.trackingId}</td>
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-neutral-900 dark:text-white">{r.isAnonymous ? 'Anonymous citizen' : (r.citizenName || '—')}</div>
-                      <div className="text-faint">{r.isAnonymous ? 'Hidden for privacy' : (r.citizenEmail || '—')}</div>
-                    </td>
-                    <td className="px-4 py-3 text-neutral-700 dark:text-white/70">{r.category}</td>
-                    <td className="px-4 py-3">
-                      <span className="badge-outline">{r.urgency}</span>
-                    </td>
-                    <td className="px-4 py-3 text-neutral-700 dark:text-white/70">
-                      <div className="flex flex-col gap-1">
-                        <span className="badge-outline w-fit">{r.status}</span>
-                        {r.requiresManualReview && (
-                          <span className="text-[11px] text-amber-700 dark:text-amber-300">Queued for manual review</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-faint">{new Date(r.createdAt).toLocaleString()}</td>
+          <div className="space-y-3">
+            <div className="card overflow-hidden">
+              <table className="min-w-full divide-y divide-neutral-200 text-sm text-neutral-700 dark:divide-white/10 dark:text-white/70">
+                <thead className="bg-neutral-100 text-xs uppercase tracking-wide text-neutral-600 dark:bg-white/5 dark:text-white/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Tracking ID</th>
+                    <th className="px-4 py-3 text-left">Citizen</th>
+                    <th className="px-4 py-3 text-left">Category</th>
+                    <th className="px-4 py-3 text-left">Urgency</th>
+                    <th className="px-4 py-3 text-left">Status</th>
+                    <th className="px-4 py-3 text-left">Submitted</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-neutral-200 dark:divide-white/10" ref={tableBodyRef}>
+                  {reports.map((r) => (
+                    <tr
+                      key={r.id}
+                      onClick={() => setSelectedId(r.id)}
+                      className={`cursor-pointer transition ${
+                        selectedId === r.id
+                          ? 'bg-neutral-200/70 dark:bg-white/10'
+                          : 'bg-neutral-100/40 hover:bg-neutral-200/70 dark:bg-white/[0.02] dark:hover:bg-white/10'
+                      }`}
+                    >
+                      <td className="px-4 py-3 font-mono text-xs text-neutral-800 dark:text-white/80">{r.trackingId}</td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-neutral-900 dark:text-white">{r.isAnonymous ? 'Anonymous citizen' : (r.citizenName || '—')}</div>
+                        <div className="text-faint">{r.isAnonymous ? 'Hidden for privacy' : (r.citizenEmail || '—')}</div>
+                      </td>
+                      <td className="px-4 py-3 text-neutral-700 dark:text-white/70">{r.category}</td>
+                      <td className="px-4 py-3">
+                        <span className="badge-outline">{r.urgency}</span>
+                      </td>
+                      <td className="px-4 py-3 text-neutral-700 dark:text-white/70">
+                        <div className="flex flex-col gap-1">
+                          <span className="badge-outline w-fit">{r.status}</span>
+                          {r.requiresManualReview && (
+                            <span className="text-[11px] text-amber-700 dark:text-amber-300">Queued for manual review</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-faint">{new Date(r.createdAt).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Load More Button */}
+            {currentPage < totalPages && (
+              <div className="flex justify-center">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={loadingMore}
+                  className="rounded-full border border-neutral-300 px-6 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-60 dark:border-white/20 dark:text-white dark:hover:bg-white/10"
+                >
+                  {loadingMore ? 'Loading more…' : 'Load more reports'}
+                </button>
+              </div>
+            )}
+
+            {/* Pagination Info */}
+            <div className="flex justify-between items-center px-4 py-2 text-xs text-neutral-600 dark:text-white/60">
+              <span>Showing {reports.length} of {totalReports} report{totalReports !== 1 ? 's' : ''}</span>
+              <span>Page {currentPage} of {totalPages}</span>
+            </div>
           </div>
         )}
       </div>
