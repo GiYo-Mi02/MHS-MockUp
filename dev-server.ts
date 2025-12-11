@@ -39,91 +39,56 @@ async function createServer() {
     }
   });
 
-  // API Routes - dynamically import serverless functions
-  const apiRoutes = [
-    { path: "/api/health", file: "./api/health.ts" },
-    { path: "/api/departments", file: "./api/departments.ts" },
-    { path: "/api/auth/verification/request", file: "./api/auth/verification/request.ts" },
-    { path: "/api/auth/verification/confirm", file: "./api/auth/verification/confirm.ts" },
-    { path: "/api/auth/:action", file: "./api/auth/[action].ts" },
-    { path: "/api/reports", file: "./api/reports/index.ts" },
-    {
-      path: "/api/reports/track/:trackingId",
-      file: "./api/reports/track/[trackingId].ts",
-    },
-    {
-      path: "/api/reports/:id/:action",
-      file: "./api/reports/[id]/[action].ts",
-    },
-    { path: "/api/notifications", file: "./api/notifications/index.ts" },
-    {
-      path: "/api/notifications/read-all",
-      file: "./api/notifications/read-all.ts",
-    },
-    {
-      path: "/api/notifications/unread-count",
-      file: "./api/notifications/unread-count.ts",
-    },
-    {
-      path: "/api/notifications/:id/read",
-      file: "./api/notifications/[id]/read.ts",
-    },
-    { path: "/api/analytics/:type", file: "./api/analytics/[type].ts" },
-    { path: "/api/dashboards/:type", file: "./api/dashboards/[type].ts" },
-  ];
+  // API Routes - use unified router (matches production)
+  app.all("/api/*", async (req, res) => {
+    try {
+      const filePath = join(__dirname, "./api/index.ts");
+      const module = await import(`file://${filePath}?update=${Date.now()}`);
+      const handler = module.default;
 
-  for (const route of apiRoutes) {
-    const routePath = route.path;
-    const filePath = join(__dirname, route.file);
+      // Convert Express req/res to Vercel-style
+      const vercelReq = {
+        method: req.method,
+        headers: req.headers,
+        body: req.body,
+        query: { ...req.query, ...req.params },
+        cookies: req.cookies,
+        url: req.url,
+      };
 
-    app.all(routePath, async (req, res) => {
-      try {
-        const module = await import(`file://${filePath}?update=${Date.now()}`);
-        const handler = module.default;
+      // Custom response object that matches Vercel API
+      const vercelRes = {
+        status: (code: number) => {
+          res.status(code);
+          return vercelRes;
+        },
+        json: (data: any) => {
+          res.json(data);
+          return vercelRes;
+        },
+        send: (data: any) => {
+          res.send(data);
+          return vercelRes;
+        },
+        setHeader: (key: string, value: string | string[]) => {
+          res.setHeader(key, value);
+          return vercelRes;
+        },
+        end: () => {
+          res.end();
+          return vercelRes;
+        },
+      };
 
-        // Convert Express req/res to Vercel-style
-        const vercelReq = {
-          method: req.method,
-          headers: req.headers,
-          body: req.body,
-          query: { ...req.query, ...req.params },
-          cookies: req.cookies,
-          url: req.url,
-        };
-
-        // Custom response object that matches Vercel API
-        const vercelRes = {
-          status: (code) => {
-            res.status(code);
-            return vercelRes;
-          },
-          json: (data) => {
-            res.json(data);
-            return vercelRes;
-          },
-          send: (data) => {
-            res.send(data);
-            return vercelRes;
-          },
-          setHeader: (key, value) => {
-            res.setHeader(key, value);
-            return vercelRes;
-          },
-          end: () => {
-            res.end();
-            return vercelRes;
-          },
-        };
-
-        await handler(vercelReq, vercelRes);
-      } catch (error) {
-        console.error(`Error in ${route.file}:`, error);
-        res
-          .status(500)
-          .json({ error: "Internal server error", details: error.message });
-      }
-    });
-  }
+      await handler(vercelReq, vercelRes);
+    } catch (error: unknown) {
+      console.error(`Error in API router:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      res
+        .status(500)
+        .json({ error: "Internal server error", details: errorMessage });
+    }
+  });
 
   // Create Vite server in middleware mode
   const vite = await createViteServer({
