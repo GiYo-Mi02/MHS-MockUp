@@ -1,53 +1,82 @@
-# MakatiReport Monorepo (React + Vite, Express + MySQL)
+# MakatiReport - Unified Vercel Deployment
 
 Department-centric concern reporting system for Makati City.
 
-Frontend: React + Vite + TailwindCSS
-Backend: Express + TypeScript + MySQL (mysql2) + JWT
+**Tech Stack:**
+
+- Frontend: React + Vite + TailwindCSS
+- Backend: Vercel Serverless Functions
+- Database: Supabase (PostgreSQL)
 
 📚 **Need the full tour?** Read the complete [system overview documentation](docs/system-overview.md) for architecture, API contracts, workflows, and deployment guidance.
 
-## Setup (Windows cmd)
+## Project Structure
+
+```
+makati-report/
+├── src/
+│   ├── client/          # React frontend
+│   │   ├── components/  # UI components
+│   │   ├── pages/       # Page components
+│   │   ├── lib/         # Utilities (api, auth, etc.)
+│   │   └── main.tsx     # App entry point
+│   └── server/          # Server-side code
+│       ├── supabase.ts  # Database client
+│       ├── auth.ts      # JWT authentication
+│       └── services/    # Business logic
+├── api/                 # Vercel Serverless Functions
+│   ├── auth/            # Authentication endpoints
+│   ├── reports/         # Report management
+│   ├── notifications/   # In-app notifications
+│   ├── analytics/       # Analytics data
+│   └── dashboards/      # Dashboard data
+├── index.html           # HTML entry point
+├── vite.config.ts       # Vite configuration
+└── vercel.json          # Vercel deployment config
+```
+
+## Setup (Local Development)
 
 1. Install dependencies
 
-```cmd
+```bash
 npm install
 ```
 
-2. Configure env files
+2. Configure environment
 
-```cmd
-copy packages\server\.env.example packages\server\.env
-copy packages\web\.env.example packages\web\.env
+```bash
+copy .env.example .env
 ```
 
-Fill out the server `.env` with your SMTP provider so citizens receive receipts and department updates automatically:
+Fill out the `.env` with your credentials:
 
-- `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE` – mail server connection
-- `SMTP_USER`, `SMTP_PASS` – credentials (if required)
-- `EMAIL_FROM` – sender address shown in emails (use the same domain as your SMTP user)
-- `PUBLIC_BASE_URL` – the public URL for the API (used for local file fallback links)
-- Optional: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_FOLDER` for hosted evidence storage
+- `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` – Supabase connection
+- `JWT_SECRET` – Secret for JWT token signing
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` – Email server (optional)
+- `CLOUDINARY_URL` – For file uploads (optional)
 
-You can verify that the mail transport is wired correctly at [http://localhost:4000/api/health/email](http://localhost:4000/api/health/email).
+3. Run development server
 
-3. Initialize database (ensure MySQL running and credentials in server .env)
-
-```cmd
-cd packages\server
-npm run db:init
-npm run db:seed
-cd ..\..
-```
-
-4. Run dev servers (web at 5173, API at 4000)
-
-```cmd
+```bash
 npm run dev
 ```
 
-If needed, run separately:
+The app will be available at http://localhost:5173
+
+## Deployment to Vercel
+
+1. Push your code to GitHub
+2. Import the project in Vercel
+3. Add environment variables in Vercel Dashboard:
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `JWT_SECRET`
+   - (Optional) `SMTP_*` and `CLOUDINARY_*` variables
+4. Deploy!
+
+The API endpoints are automatically deployed as serverless functions under `/api/*`.
 
 ```cmd
 cd packages\server && npm run dev
