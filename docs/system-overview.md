@@ -1,6 +1,6 @@
 # Makati Report System Documentation
 
-_Last updated: 2025-10-05_
+_Last updated: 2025-11-24_
 
 ## Purpose
 
@@ -19,12 +19,12 @@ Makati Report is a monorepo that powers a citizen incident reporting platform fo
 
 ## Architecture at a glance
 
-| Layer                        | Technology                                 | Responsibilities                                                                               |
-| ---------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| Client                       | React 18, Vite, TailwindCSS, Leaflet       | Citizen-facing submission portal, report tracking, staff/admin dashboards, toast notifications |
-| API                          | Express 4, TypeScript, mysql2, JWT, Multer | Authentication, report lifecycle, notifications, analytics, email dispatch                     |
-| Database                     | MySQL 8                                    | Departments, users, reports, SLA policies, evidence, status logs, notifications                |
-| External services (optional) | SMTP, Cloudinary                           | Email receipts/updates, evidence storage offloading                                            |
+| Layer                        | Technology                                                | Responsibilities                                                                               |
+| ---------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Client                       | React 18, Vite, TailwindCSS, Leaflet                      | Citizen-facing submission portal, report tracking, staff/admin dashboards, toast notifications |
+| API                          | Express 4, TypeScript, Supabase (PostgreSQL), JWT, Multer | Authentication, report lifecycle, notifications, analytics, email dispatch                     |
+| Database                     | Supabase (PostgreSQL)                                     | Departments, users, reports, SLA policies, evidence, status logs, notifications                |
+| External services (optional) | SMTP, Cloudinary                                          | Email receipts/updates, evidence storage offloading                                            |
 
 High-level workflow:
 
@@ -42,7 +42,7 @@ The monorepo uses npm workspaces so shared scripts like `npm run dev` cascade in
 Install the following before contributing:
 
 - **Node.js** ≥ 18 (LTS recommended) and npm ≥ 9
-- **MySQL** ≥ 8.0 with a user that can create databases/tables
+- **Supabase** project (cloud or local)
 - **SMTP credentials** (any provider) for transactional emails
 - _(Optional)_ **Cloudinary** account for hosted evidence storage (otherwise files live under `/uploads`)
 - _(Optional)_ Mapbox/Leaflet basemap access (Leaflet uses open tiles by default; no API key required)
@@ -60,7 +60,9 @@ Clone `.env.example` files before running the system.
 | `PORT`                                                            | Express listening port (default `4000`)                                    |
 | `CORS_ORIGIN`                                                     | Allowed web origin (default `http://localhost:5173`)                       |
 | `PUBLIC_BASE_URL`                                                 | Public base URL for file links in emails (`http://localhost:4000` locally) |
-| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`         | MySQL connection info                                                      |
+| `SUPABASE_URL`                                                    | Supabase Project URL                                                       |
+| `SUPABASE_ANON_KEY`                                               | Supabase Anonymous Key (public)                                            |
+| `SUPABASE_SERVICE_ROLE_KEY`                                       | Supabase Service Role Key (secret, bypasses RLS)                           |
 | `JWT_SECRET`                                                      | Secret for signing auth cookies                                            |
 | `CLOUDINARY_*`                                                    | Optional Cloudinary credentials + folder for evidence uploads              |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | Mail transport configuration                                               |
@@ -90,7 +92,7 @@ Edit the copied `.env` files with real credentials, then initialize the database
 
 ```cmd
 cd packages\server
-npm run db:init    & rem Creates schema from scripts/schema.sql
+npm run db:init    & rem Creates schema from scripts/schema.sql or Supabase migrations
 npm run db:seed    & rem Loads sample departments, users, and July 2025 reports
 cd ..\..
 ```
@@ -116,7 +118,7 @@ Helpful scripts:
 
 ## Database schema overview
 
-The schema (defined in `scripts/schema.sql`) covers the end-to-end lifecycle of a report.
+The schema (managed via Supabase migrations in `packages/server/supabase/migrations`) covers the end-to-end lifecycle of a report.
 
 | Table                | Purpose                                                                                           |
 | -------------------- | ------------------------------------------------------------------------------------------------- |
@@ -151,7 +153,7 @@ Seed data (`scripts/seed.sql`) bootstraps:
 src/
  ├─ index.ts               # App entry, health endpoints, router mounting
  ├─ auth.ts                # JWT cookie middleware + helpers
- ├─ db.ts                  # MySQL pool wrapper
+ ├─ supabase.ts            # Supabase client configuration
  ├─ routes/
  │   ├─ auth.ts            # Signup, signin, signout, /me
  │   ├─ reports.ts         # Report CRUD + evidence upload + status actions
@@ -164,7 +166,7 @@ src/
      ├─ email.ts           # Nodemailer transport + diagnostics
      ├─ notifications.ts   # DB notification helpers
      ├─ report-email.ts    # Templated citizen emails
-   ├─ trust.ts           # Trust scoring rules, transitions, submission gating
+     ├─ trust.ts           # Trust scoring rules, transitions, submission gating
      └─ storage.ts         # Cloudinary/local evidence storage abstraction
 ```
 
@@ -215,7 +217,23 @@ src/
 ### Error handling
 
 - Unified Express error handler logs stack traces and returns `500` JSON payloads.
-- Individual routes catch known MySQL errors (e.g., duplicate email) and return friendly messages.
+- Individual routes catch known database errors and return friendly messages.
+
+---
+
+## Load Testing
+
+The `packages/server/k6` directory contains a comprehensive load testing suite using [k6](https://k6.io/).
+
+| Script           | Purpose                                                    |
+| :--------------- | :--------------------------------------------------------- |
+| `smoke-test.js`  | Minimal load to verify system functionality                |
+| `load-test.js`   | Simulates normal day-to-day traffic                        |
+| `stress-test.js` | Pushes system beyond normal limits to find breaking points |
+| `spike-test.js`  | Simulates sudden bursts of traffic                         |
+| `soak-test.js`   | Long-duration test to find memory leaks                    |
+
+Run tests via npm scripts: `npm run test:load`, `npm run test:stress`, etc.
 
 ---
 
@@ -239,7 +257,7 @@ src/
 | `/track/:trackingId?`   | Citizens/guests | Track report status, timeline, evidence                               |
 | `/signin`, `/signup`    | All             | Auth forms (staff/admin seeded via SQL)                               |
 | `/verify`               | Citizens        | OTP entry + resend flow for confirming new accounts                   |
-| `/dashboard/department` | Staff           | Queue table, stats, map pins, respond modal                           |
+| `/dashboard/department` | Staff           | Queue table, stats, map pins, evidence gallery, respond modal         |
 | `/dashboard/admin`      | Admin           | KPI cards, trend chart, heatmap, department/category tables           |
 
 ### State + data flow
@@ -279,7 +297,7 @@ src/
 
 2. **Department triage**
    - Staff view `/dashboard/department`; queue fetches `/dashboards/department` and `/dashboards/department/stats`.
-   - Selecting a row fetches `/reports/track/:trackingId` for timeline + evidence.
+   - Selecting a row fetches `/reports/track/:trackingId` for timeline + evidence; photos are displayed in a gallery.
    - Staff respond via the combined action form (`/reports/:id/actions`), optionally altering status.
 
 3. **Citizen updates**

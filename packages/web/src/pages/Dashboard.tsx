@@ -278,6 +278,7 @@ function DeptView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [timeline, setTimeline] = useState<ReportLog[]>([])
+  const [evidence, setEvidence] = useState<ReportEvidence[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalReports, setTotalReports] = useState(0)
@@ -351,10 +352,17 @@ function DeptView() {
 
   useEffect(() => {
     if (!selectedReport) return
+    setEvidence([])
     api
       .get(`/reports/track/${selectedReport.trackingId}`)
-    .then((res) => setTimeline((res.data.logs as ReportLog[] | undefined) ?? []))
-      .catch(() => setTimeline([]))
+      .then((res) => {
+        setTimeline((res.data.logs as ReportLog[] | undefined) ?? [])
+        setEvidence((res.data.evidence as ReportEvidence[] | undefined) ?? [])
+      })
+      .catch(() => {
+        setTimeline([])
+        setEvidence([])
+      })
   }, [selectedReport?.id, selectedReport?.trackingId])
 
   const locationPoints = useMemo(() => {
@@ -653,6 +661,9 @@ function DeptView() {
                 )}
               </div>
               <p className="mt-4 whitespace-pre-wrap text-secondary">{selectedReport.description}</p>
+
+              
+
               <div className="mt-5 grid gap-3 text-xs text-neutral-600 dark:text-white/60 sm:grid-cols-2">
                 <span><span className="text-faint">Citizen</span><br />{selectedReport.isAnonymous ? 'Anonymous citizen' : (selectedReport.citizenName || '—')}</span>
                 <span><span className="text-faint">Email</span><br />{selectedReport.isAnonymous ? 'Hidden for privacy' : (selectedReport.citizenEmail || '—')}</span>
@@ -669,6 +680,28 @@ function DeptView() {
                   <span><span className="text-faint">Coordinates</span><br />{selectedCoordinates.lat.toFixed(5)}, {selectedCoordinates.lng.toFixed(5)}</span>
                 )}
               </div>
+              {evidence.length > 0 && (
+                <div className="mt-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-secondary">Attached photos</p>
+                  <div className="flex flex-wrap gap-3">
+                    {evidence.map((item) => (
+                      <a
+                        key={item.id}
+                        href={item.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group relative block h-24 w-24 overflow-hidden rounded-lg border border-neutral-200 dark:border-white/10"
+                      >
+                        <img
+                          src={item.fileUrl}
+                          alt="Report evidence"
+                          className="h-full w-full object-cover transition group-hover:scale-105"
+                        />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="card px-6 py-6">
