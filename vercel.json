@@ -9,5 +9,12 @@
       "source": "/api/:path*",
       "destination": "/api/index"
     }
-  ]
+  ],
+  "functions": {
+    "api/index.ts": {
+      "memory": 1024,
+      "maxDuration": 10,
+      "includeFiles": "api/handlers/**"
+    }
+  }
 }
