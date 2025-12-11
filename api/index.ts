@@ -10,21 +10,21 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
  * Route Pattern: /api/* -> handled by this function
  */
 
-// Import all route handlers (from src/server/handlers to keep them out of /api directory)
-import healthHandler from '../src/server/handlers/health'
-import departmentsHandler from '../src/server/handlers/departments'
-import authHandler from '../src/server/handlers/auth/[action]'
-import authVerificationRequestHandler from '../src/server/handlers/auth/verification/request'
-import authVerificationConfirmHandler from '../src/server/handlers/auth/verification/confirm'
-import reportsHandler from '../src/server/handlers/reports/index'
-import reportsActionHandler from '../src/server/handlers/reports/[id]/[action]'
-import reportsTrackHandler from '../src/server/handlers/reports/track/[trackingId]'
-import notificationsHandler from '../src/server/handlers/notifications/index'
-import notificationsReadAllHandler from '../src/server/handlers/notifications/read-all'
-import notificationsUnreadCountHandler from '../src/server/handlers/notifications/unread-count'
-import notificationReadHandler from '../src/server/handlers/notifications/[id]/read'
-import dashboardsHandler from '../src/server/handlers/dashboards/[type]'
-import analyticsHandler from '../src/server/handlers/analytics/[type]'
+// Import all route handlers (underscore prefix prevents Vercel from deploying as separate functions)
+import healthHandler from './_handlers/health'
+import departmentsHandler from './_handlers/departments'
+import authHandler from './_handlers/auth/[action]'
+import authVerificationRequestHandler from './_handlers/auth/verification/request'
+import authVerificationConfirmHandler from './_handlers/auth/verification/confirm'
+import reportsHandler from './_handlers/reports/index'
+import reportsActionHandler from './_handlers/reports/[id]/[action]'
+import reportsTrackHandler from './_handlers/reports/track/[trackingId]'
+import notificationsHandler from './_handlers/notifications/index'
+import notificationsReadAllHandler from './_handlers/notifications/read-all'
+import notificationsUnreadCountHandler from './_handlers/notifications/unread-count'
+import notificationReadHandler from './_handlers/notifications/[id]/read'
+import dashboardsHandler from './_handlers/dashboards/[type]'
+import analyticsHandler from './_handlers/analytics/[type]'
 
 interface RouteMatch {
   handler: (req: VercelRequest, res: VercelResponse) => Promise<any>
