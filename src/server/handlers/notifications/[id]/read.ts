@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { supabaseAdmin } from '../../../src/server/supabase'
-import { requireAuth } from '../../../src/server/auth'
+import { supabaseAdmin } from '../../../../supabase'
+import { requireAuth } from '../../../../auth'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Enable CORS

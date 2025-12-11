@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { checkDatabaseHealth } from '../src/server/supabase'
+import { checkDatabaseHealth } from '../supabase'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {

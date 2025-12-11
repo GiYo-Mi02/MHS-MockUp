@@ -1,10 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { supabaseAdmin } from '../../src/server/supabase'
-import { requireAuth, getTokenFromCookies, verifyToken } from '../../src/server/auth'
-import { sendReportSubmissionReceipt } from '../../src/server/services/report-email'
-import { notifyDepartmentOfNewReport } from '../../src/server/services/notifications'
-import { getTrustMetadata, getInitialStatusForTrust, type TrustLevel } from '../../src/server/services/trust'
-import { uploadEvidenceImage } from '../../src/server/services/storage'
+import { supabaseAdmin } from '../../supabase'
+import { requireAuth, getTokenFromCookies, verifyToken } from '../../auth'
+import { sendReportSubmissionReceipt } from '../../services/report-email'
+import { notifyDepartmentOfNewReport } from '../../services/notifications'
+import { getTrustMetadata, getInitialStatusForTrust, type TrustLevel } from '../../services/trust'
+import { uploadEvidenceImage } from '../../services/storage'
 
 export const config = {
   api: {

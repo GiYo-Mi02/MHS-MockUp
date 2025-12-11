@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { supabaseAdmin } from '../../../src/server/supabase'
-import { requireRole, type TokenPayload } from '../../../src/server/auth'
-import { sendReportUpdateNotification } from '../../../src/server/services/report-email'
-import { notifyCitizenOfStatusChange, notifyCitizenOfResponse } from '../../../src/server/services/notifications'
-import { applyTrustTransition } from '../../../src/server/services/trust'
+import { supabaseAdmin } from '../../../supabase'
+import { requireRole, type TokenPayload } from '../../../auth'
+import { sendReportUpdateNotification } from '../../../services/report-email'
+import { notifyCitizenOfStatusChange, notifyCitizenOfResponse } from '../../../services/notifications'
+import { applyTrustTransition } from '../../../services/trust'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Enable CORS
@@ -292,7 +292,7 @@ async function handleActions(req: VercelRequest, res: VercelResponse, id: string
       message: trimmedMessage || null,
       newStatus,
       actorName: user.name || null
-    }).catch(error => {
+    }).catch((error: unknown) => {
       console.error('Failed to send update notification email:', error)
     })
   }

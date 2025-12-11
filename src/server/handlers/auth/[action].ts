@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import bcrypt from 'bcryptjs'
-import { supabaseAdmin } from '../../src/server/supabase'
-import { signToken, setAuthCookie, clearAuthCookie, getTokenFromCookies, verifyToken, requireAuth } from '../../src/server/auth'
-import { issueVerificationCode, verifyCitizenCode, type VerificationMethod } from '../../src/server/services/verification'
-import { getTrustMetadata } from '../../src/server/services/trust'
+import { supabaseAdmin } from '../../supabase'
+import { signToken, setAuthCookie, clearAuthCookie, getTokenFromCookies, verifyToken, requireAuth } from '../../auth'
+import { issueVerificationCode, verifyCitizenCode, type VerificationMethod } from '../../services/verification'
+import { getTrustMetadata } from '../../services/trust'
 
 type Role = 'CITIZEN' | 'STAFF' | 'ADMIN'
 

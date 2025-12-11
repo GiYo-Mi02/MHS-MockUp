@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { supabaseAdmin } from '../src/server/supabase'
+import { supabaseAdmin } from '../supabase'
 
 // Simple in-memory cache for departments (5 min TTL)
 let departmentsCache: { data: any; timestamp: number } | null = null

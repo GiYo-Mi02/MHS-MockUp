@@ -7,7 +7,7 @@ import {
   getTimeseries,
   resolveDateRange,
   type DateRange
-} from '../../src/server/services/analytics'
+} from '../../services/analytics'
 
 function serializeRange(range: DateRange) {
   return {
