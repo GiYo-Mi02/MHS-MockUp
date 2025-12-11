@@ -70,8 +70,10 @@ Vercel's Hobby plan limits deployments to **12 serverless functions**. Our appli
 
 ```
 api/
-├── index.ts              # 🎯 UNIFIED ROUTER (only serverless function)
-├── README.md             # This file
+├── index.ts              # 🎯 UNIFIED ROUTER (ONLY file in /api - the single serverless function)
+└── README.md             # This file
+
+src/server/handlers/      # ⚠️ All handlers OUTSIDE /api to prevent Vercel from deploying them
 ├── health.ts             # Handler: Health check
 ├── departments.ts        # Handler: Departments list
 ├── auth/
@@ -97,6 +99,8 @@ api/
     └── [type].ts         # Handler: Get analytics data
 ```
 
+**CRITICAL:** Handlers are stored in `src/server/handlers/` instead of `api/` directory. This is essential because Vercel deploys every `.ts` file in `/api` as a separate serverless function. By keeping only `index.ts` in `/api`, we ensure only 1 function is deployed.
+
 ## Route Mapping
 
 | Request Path                     | Handler File                      | Extracted Params                  |
@@ -116,10 +120,10 @@ api/
 
 ### Example: Add a new `/api/users/:id` endpoint
 
-1. **Create the handler file:**
+1. **Create the handler file (OUTSIDE /api directory):**
 
    ```typescript
-   // api/users/[id].ts
+   // src/server/handlers/users/[id].ts
    import type { VercelRequest, VercelResponse } from "@vercel/node";
 
    export default async function handler(
@@ -132,11 +136,11 @@ api/
    }
    ```
 
-2. **Register the route in index.ts:**
+2. **Register the route in api/index.ts:**
 
    ```typescript
    // In api/index.ts
-   import usersHandler from "./users/[id]";
+   import usersHandler from "../src/server/handlers/users/[id]";
 
    // Add to matchRoute function:
    if (segments[0] === "users" && segments[1]) {
@@ -145,6 +149,8 @@ api/
    ```
 
 3. **Done!** No need to create a new serverless function.
+
+⚠️ **CRITICAL:** Always create handler files in `src/server/handlers/` directory, NOT in `/api` directory. Vercel will deploy any `.ts` file in `/api` as a separate function.
 
 ## Local Development
 
