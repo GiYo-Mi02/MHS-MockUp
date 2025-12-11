@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "@handlers/*": ["../src/server/handlers/handlers/*"]
+    }
+  },
+  "include": ["./**/*", "../src/server/handlers/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

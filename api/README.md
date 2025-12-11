@@ -70,10 +70,10 @@ Vercel's Hobby plan limits deployments to **12 serverless functions**. Our appli
 
 ```
 api/
-├── index.ts              # 🎯 UNIFIED ROUTER (ONLY file in /api - the single serverless function)
+├── index.ts              # 🎯 UNIFIED ROUTER (ONLY .ts file in /api - single serverless function)
 └── README.md             # This file
 
-src/server/handlers/      # ⚠️ All handlers OUTSIDE /api to prevent Vercel from deploying them
+src/server/handlers/      # ⚠️ All handlers OUTSIDE /api (Vercel deploys ANY .ts in /api as separate functions)
 ├── health.ts             # Handler: Health check
 ├── departments.ts        # Handler: Departments list
 ├── auth/
