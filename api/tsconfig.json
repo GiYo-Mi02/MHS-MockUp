@@ -3,11 +3,8 @@
   "compilerOptions": {
     "module": "CommonJS",
     "outDir": "./dist",
-    "baseUrl": ".",
-    "paths": {
-      "@handlers/*": ["../src/server/handlers/handlers/*"]
-    }
+    "baseUrl": "."
   },
-  "include": ["./**/*", "../src/server/handlers/**/*"],
+  "include": ["./**/*", "../backend/**/*"],
   "exclude": ["node_modules", "dist"]
 }
