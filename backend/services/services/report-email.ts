@@ -1,5 +1,5 @@
-import { supabaseAdmin } from '../supabase'
-import { isEmailConfigured, sendEmail } from './email'
+import { supabaseAdmin } from '../supabase.js'
+import { isEmailConfigured, sendEmail } from './email.js'
 
 function formatDateTime(value: Date | string): string {
   const date = value instanceof Date ? value : new Date(value)

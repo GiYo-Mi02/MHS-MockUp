@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../supabase'
+import { supabaseAdmin } from '../supabase.js'
 
 export type DateRange = {
   from: Date

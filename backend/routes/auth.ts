@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
-import { supabaseAdmin } from '../services/supabase'
-import { signToken, setAuthCookie, clearAuthCookie, getTokenFromCookies, verifyToken, requireAuth } from '../services/auth'
-import { issueVerificationCode, verifyCitizenCode } from '../services/services/verification'
-import { getTrustMetadata } from '../services/services/trust'
+import { supabaseAdmin } from '../services/supabase.js'
+import { signToken, setAuthCookie, clearAuthCookie, getTokenFromCookies, verifyToken, requireAuth } from '../services/auth.js'
+import { issueVerificationCode, verifyCitizenCode } from '../services/services/verification.js'
+import { getTrustMetadata } from '../services/services/trust.js'
 
 const router = Router()
 

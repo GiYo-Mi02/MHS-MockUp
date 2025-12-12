@@ -7,7 +7,7 @@
  * Route Pattern: /api/* -> handled by Express router in backend/app.ts
  */
 
-import app from '../backend/app'
+import app from '../backend/app.js'
 
 // Vercel automatically adapts Express apps to serverless functions
 export default app

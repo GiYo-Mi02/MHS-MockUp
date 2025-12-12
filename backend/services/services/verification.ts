@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
-import { supabaseAdmin } from '../supabase'
-import { sendEmail, isEmailConfigured } from './email'
+import { supabaseAdmin } from '../supabase.js'
+import { sendEmail, isEmailConfigured } from './email.js'
 
 export type VerificationMethod = 'email' | 'phone' | 'manual'
 

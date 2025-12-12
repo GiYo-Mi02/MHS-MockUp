@@ -1,5 +1,5 @@
-import { supabaseAdmin } from '../supabase'
-import type { TrustLevel } from './trust'
+import { supabaseAdmin } from '../supabase.js'
+import type { TrustLevel } from './trust.js'
 
 export type CreateNotificationData = {
   reportId: number

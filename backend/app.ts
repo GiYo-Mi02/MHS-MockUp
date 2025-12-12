@@ -2,13 +2,13 @@ import express, { Request, Response } from 'express'
 import cors from 'cors'
 
 // Import routes
-import healthRoutes from './routes/health'
-import departmentsRoutes from './routes/departments'
-import authRoutes from './routes/auth'
-import reportsRoutes from './routes/reports'
-import notificationsRoutes from './routes/notifications'
-import dashboardsRoutes from './routes/dashboards'
-import analyticsRoutes from './routes/analytics'
+import healthRoutes from './routes/health.js'
+import departmentsRoutes from './routes/departments.js'
+import authRoutes from './routes/auth.js'
+import reportsRoutes from './routes/reports.js'
+import notificationsRoutes from './routes/notifications.js'
+import dashboardsRoutes from './routes/dashboards.js'
+import analyticsRoutes from './routes/analytics.js'
 
 const app = express()
 

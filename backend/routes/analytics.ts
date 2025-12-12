@@ -7,7 +7,7 @@ import {
   getTimeseries,
   resolveDateRange,
   type DateRange
-} from '../services/services/analytics'
+} from '../services/services/analytics.js'
 
 const router = Router()
 

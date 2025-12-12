@@ -1,10 +1,10 @@
 import { Router, Request, Response } from 'express'
-import { supabaseAdmin } from '../services/supabase'
-import { requireAuth, getTokenFromCookies, verifyToken, requireRole } from '../services/auth'
-import { sendReportSubmissionReceipt, sendReportUpdateNotification } from '../services/services/report-email'
-import { notifyDepartmentOfNewReport, notifyCitizenOfStatusChange, notifyCitizenOfResponse } from '../services/services/notifications'
-import { getTrustMetadata, getInitialStatusForTrust, applyTrustTransition, type TrustLevel } from '../services/services/trust'
-import { uploadEvidenceImage } from '../services/services/storage'
+import { supabaseAdmin } from '../services/supabase.js'
+import { requireAuth, getTokenFromCookies, verifyToken, requireRole } from '../services/auth.js'
+import { sendReportSubmissionReceipt, sendReportUpdateNotification } from '../services/services/report-email.js'
+import { notifyDepartmentOfNewReport, notifyCitizenOfStatusChange, notifyCitizenOfResponse } from '../services/services/notifications.js'
+import { getTrustMetadata, getInitialStatusForTrust, applyTrustTransition, type TrustLevel } from '../services/services/trust.js'
+import { uploadEvidenceImage } from '../services/services/storage.js'
 
 const router = Router()
 

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
-import { supabaseAdmin } from '../services/supabase'
-import { requireRole, type TokenPayload } from '../services/auth'
+import { supabaseAdmin } from '../services/supabase.js'
+import { requireRole, type TokenPayload } from '../services/auth.js'
 
 const router = Router()
 
